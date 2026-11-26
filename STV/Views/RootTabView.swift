@@ -5,12 +5,15 @@ import SwiftUI
 struct RootTabView: View {
     @State private var tab = Int(ProcessInfo.processInfo.environment["STV_TAB"] ?? "") ?? 0
     @State private var paths = [NavigationPath(), NavigationPath(), NavigationPath(), NavigationPath(), NavigationPath()]
+    @State private var tabBarHidden = false
+    @State private var restoreTask: Task<Void, Never>?
     static let items: [(String, String)] = [("首页", "house.fill"), ("TVBox", "tv.fill"),
                                             ("找剧", "square.grid.2x2.fill"), ("我的", "person.crop.circle.fill")]
     var body: some View {
         GeometryReader { geo in
             let metrics = LayoutMetrics(width: geo.size.width, height: geo.size.height)
             let showNav = paths[tab].isEmpty
+            let showBottomBar = showNav && !metrics.useRail && !tabBarHidden
             HStack(spacing: 0) {
                 // The spring belongs to the bars alone: attached to the whole tree (as it was) every push and pop animated
                 // the layout of all five tabs.
@@ -31,16 +34,51 @@ struct RootTabView: View {
                     Stack(path: $paths[4], reserveBottomBar: !metrics.useRail) { SearchView() }.tag(4)
                 }
                 .tint(STVTheme.accent)
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 8)
+                        .onChanged { value in
+                            guard showNav && !metrics.useRail else { return }
+                            let dy = value.translation.height
+                            let dx = value.translation.width
+                            guard abs(dy) > abs(dx) * 1.2 else { return }
+                            if dy < -14 {
+                                restoreTask?.cancel()
+                                if !tabBarHidden { tabBarHidden = true }
+                            } else if dy > 14 {
+                                restoreTask?.cancel()
+                                if tabBarHidden { tabBarHidden = false }
+                            }
+                        }
+                        .onEnded { _ in
+                            guard tabBarHidden else { return }
+                            restoreTask?.cancel()
+                            restoreTask = Task { @MainActor in
+                                try? await Task.sleep(nanoseconds: 450_000_000)
+                                guard !Task.isCancelled else { return }
+                                tabBarHidden = false
+                            }
+                        }
+                )
                 .overlay(alignment: .bottom) {
                     Group {
-                        if showNav && !metrics.useRail {
+                        if showBottomBar {
                             GlassTabBar(selection: $tab, items: Self.items) { i in
                                 if i == tab { paths[i] = NavigationPath() }
                             }
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                         }
                     }
-                    .animation(DS.select, value: showNav && !metrics.useRail)
+                    .animation(DS.select, value: showBottomBar)
+                }
+                .compatOnChange(of: tab) { _ in
+                    restoreTask?.cancel()
+                    tabBarHidden = false
+                }
+                .compatOnChange(of: showNav) { visible in
+                    if !visible {
+                        restoreTask?.cancel()
+                        tabBarHidden = false
+                    }
                 }
             }
             .environment(\.layoutMetrics, metrics)
