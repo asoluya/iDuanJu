@@ -23,10 +23,10 @@ struct TVBoxConfigView: View {
 
     var body: some View {
         let activeRepo = store.activeRepo
-        let allVisibleSites = (activeRepo?.sites ?? []).filter { !$0.adult || gate.unlocked }
+        let allVisibleSites = (activeRepo?.sites ?? []).filter { !$0.site.adult || gate.unlocked }
         let q = siteQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let visibleSites = q.isEmpty ? allVisibleSites : allVisibleSites.filter {
-            $0.name.lowercased().contains(q) || $0.api.lowercased().contains(q)
+            $0.site.name.lowercased().contains(q) || $0.site.api.lowercased().contains(q)
         }
         let lives = activeRepo?.lives ?? []
 
@@ -44,9 +44,9 @@ struct TVBoxConfigView: View {
                         let u = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !u.isEmpty else { return }
                         runTask {
-                            let r = try await store.importFromURL(u) { statusMsg = $0 }
+                            let r = try await store.importUrl(u)
                             urlText = ""
-                            return "已解析「\(r.name)」：\(r.sites.count) 点播站 · \(r.lives.count) 直播源"
+                            return summary(r)
                         }
                     } label: {
                         Text("解析")
@@ -85,6 +85,32 @@ struct TVBoxConfigView: View {
                     .padding(.horizontal, 16)
                 }
 
+                // 多仓：选择一条线路导入
+                ForEach(store.state.depots) { depot in
+                    Menu {
+                        ForEach(depot.entries) { e in
+                            Button(e.name) { runTask { summary(try await store.openDepot(depot, e, nested: false)) } }
+                        }
+                        Button("移除多仓", role: .destructive) { store.removeDepot(depot.id) }
+                    } label: {
+                        Label("多仓「\(depot.name)」· \(depot.entries.count) 条线路", systemImage: "shippingbox")
+                            .font(.caption.weight(.semibold)).foregroundStyle(STVTheme.accent)
+                    }
+                    .padding(.horizontal, 16)
+                }
+
+                if let activeRepo, activeRepo.needsTrust {
+                    HStack(spacing: 8) {
+                        Text("这个配置包含会在设备上执行的脚本").font(.caption).foregroundStyle(STVTheme.text)
+                        Spacer()
+                        Button("信任") { store.setTrust(activeRepo.id, .trusted) }.font(.caption.weight(.semibold)).foregroundStyle(STVTheme.accent)
+                        Button("不信任") { store.setTrust(activeRepo.id, .denied) }.font(.caption).foregroundStyle(STVTheme.secondary)
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .background(STVTheme.accentWarm.opacity(0.13), in: RoundedRectangle(cornerRadius: 12))
+                    .padding(.horizontal, 16)
+                }
+
                 // 多配置仓切换胶囊条
                 if !store.repos.isEmpty {
                     HStack {
@@ -104,7 +130,7 @@ struct TVBoxConfigView: View {
                         HStack(spacing: 8) {
                             ForEach(store.repos) { repo in
                                 let on = repo.id == activeRepo?.id
-                                Button { store.selectRepo(repo.id) } label: {
+                                Button { store.select(repo.id) } label: {
                                     HStack(spacing: 6) {
                                         if on { Circle().fill(Color(red: 0.37, green: 0.82, blue: 0.54)).frame(width: 7, height: 7) }
                                         Text(repo.name).font(.caption.weight(.semibold)).lineLimit(1)
@@ -130,27 +156,22 @@ struct TVBoxConfigView: View {
                                 .padding(.horizontal, 7).padding(.vertical, 2)
                                 .background(Color(red: 0.12, green: 0.62, blue: 0.34).opacity(0.16), in: Capsule())
                             Spacer()
-                            if let u = activeRepo.url, !u.isEmpty {
-                                Button("重新拉取") {
-                                    runTask {
-                                        let r = try await store.refreshRepo(activeRepo.id) { statusMsg = $0 }
-                                        return "已更新「\(r.name)」：\(r.sites.count) 点播站 · \(r.lives.count) 直播源"
-                                    }
-                                }
+                            if !activeRepo.record.url.isEmpty {
+                                Button("重新拉取") { runTask { summary(try await store.refresh(activeRepo.id)) } }
                                 .font(.caption.weight(.semibold)).foregroundStyle(STVTheme.accent)
                                 .disabled(busy)
                             }
                         }
-                        Text(activeRepo.url ?? "本地 / 剪贴板导入")
+                        Text(activeRepo.record.url.isEmpty ? "本地 / 剪贴板导入" : activeRepo.record.url)
                             .font(.caption2.monospaced()).foregroundStyle(STVTheme.secondary).lineLimit(1)
                         Divider().overlay(STVTheme.text.opacity(0.08)).padding(.vertical, 3)
                         HStack(spacing: 8) {
                             Text("\(allVisibleSites.count) 点播站").font(.caption.weight(.semibold)).foregroundStyle(STVTheme.text)
                             Text("·").foregroundStyle(STVTheme.secondary)
                             Text("\(lives.count) 直播源").font(.caption.weight(.semibold)).foregroundStyle(STVTheme.text)
-                            if activeRepo.skippedCount > 0 {
+                            if let error = activeRepo.error {
                                 Text("·").foregroundStyle(STVTheme.secondary)
-                                Text("已跳过 \(activeRepo.skippedCount) 个 JAR/脚本源").font(.caption2).foregroundStyle(STVTheme.secondary)
+                                Text(error).font(.caption2).foregroundStyle(STVTheme.accentWarm).lineLimit(1)
                             }
                         }
                     }
@@ -163,7 +184,7 @@ struct TVBoxConfigView: View {
                 // 点播站点细线列表（懒加载，支持大量站点快速过滤）
                 if !allVisibleSites.isEmpty, let activeRepo {
                     HStack {
-                        Text("点播站点（苹果 CMS API · \(visibleSites.count)\(q.isEmpty ? "" : "/\(allVisibleSites.count)")）")
+                        Text("点播站点（\(visibleSites.count)\(q.isEmpty ? "" : "/\(allVisibleSites.count)")）")
                             .font(.caption.weight(.semibold)).foregroundStyle(STVTheme.secondary)
                         Spacer()
                     }
@@ -190,8 +211,8 @@ struct TVBoxConfigView: View {
 
                     LazyVStack(spacing: 0) {
                         ForEach(visibleSites) { site in
-                            TVBoxSiteRow(site: site, showDivider: site.id != visibleSites.last?.id) { enabled in
-                                store.setSiteEnabled(repoId: activeRepo.id, siteKey: site.key, enabled: enabled)
+                            TVBoxSiteRow(ref: site, enabled: activeRepo.enabled(site.uid), meters: store.meters, showDivider: site.id != visibleSites.last?.id) { enabled in
+                                store.setEnabled(activeRepo.id, site.uid, enabled)
                             }
                         }
                     }.padding(.horizontal, 16)
@@ -199,23 +220,23 @@ struct TVBoxConfigView: View {
 
                 // 直播列表细线列表（懒加载）
                 if !lives.isEmpty, let activeRepo {
-                    Text("直播列表（HTTP(S) M3U / TXT · \(lives.count)）")
+                    Text("直播列表（\(lives.count)）")
                         .font(.caption.weight(.semibold)).foregroundStyle(STVTheme.secondary)
                         .padding(.horizontal, 16).padding(.top, 10)
 
                     LazyVStack(spacing: 0) {
                         ForEach(lives) { live in
                             TVBoxLiveRow(
-                                live: live,
+                                live: live.live, enabled: activeRepo.enabled(live.uid),
                                 showDivider: live.id != lives.last?.id,
-                                onWatch: { Router.push(.tvboxLive(activeRepo.id, live.id, 0)) },
-                                onToggle: { store.setLiveEnabled(repoId: activeRepo.id, liveId: live.id, enabled: $0) }
+                                onWatch: { Router.push(.play(store.liveSeries(live), nil)) },
+                                onToggle: { store.setEnabled(activeRepo.id, live.uid, $0) }
                             )
                         }
                     }.padding(.horizontal, 16)
                 }
 
-                Text("仅解析 HTTP(S) 苹果 CMS 接口（type 0 / 1 / 4）与 M3U/TXT 直播源；JAR、CatVod 与 Python spider 不会在本地执行。")
+                Text("支持苹果 CMS、T4、JS、Python 站点与 M3U/TXT 直播源；JAR 站点需要配对 Android 桥接。")
                     .font(.caption2).foregroundStyle(STVTheme.secondary.opacity(0.75))
                     .padding(.horizontal, 16).padding(.top, 8)
             }
@@ -227,12 +248,7 @@ struct TVBoxConfigView: View {
         .toolbar {
             if let activeRepo, !activeRepo.sites.isEmpty {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(busy ? "处理中…" : "全部测速") {
-                        runTask {
-                            await store.pingAllSites(repoId: activeRepo.id) { statusMsg = $0 }
-                            return "测速完成"
-                        }
-                    }
+                    Button("全部测速") { store.testSpeed(activeRepo.sites.map(\.uid)) }
                     .disabled(busy)
                     .foregroundStyle(STVTheme.accent)
                 }
@@ -242,14 +258,11 @@ struct TVBoxConfigView: View {
             guard case let .success(url) = res else { return }
             let ok = url.startAccessingSecurityScopedResource()
             defer { if ok { url.stopAccessingSecurityScopedResource() } }
-            guard let data = try? Data(contentsOf: url), let text = String(data: data, encoding: .utf8) else {
+            guard let data = try? Data(contentsOf: url) else {
                 statusMsg = "无法读取文件"; statusError = true; return
             }
-            let name = url.deletingPathExtension().lastPathComponent
-            runTask {
-                let r = try await store.importFromText(text, fallbackName: name) { statusMsg = $0 }
-                return "已导入「\(r.name)」：\(r.sites.count) 点播站 · \(r.lives.count) 直播源"
-            }
+            let name = url.lastPathComponent
+            runTask { summary(try await store.importLocal(data, fileName: name)) }
         }
         .sheet(isPresented: $showPaste) {
             NavigationStack {
@@ -268,10 +281,7 @@ struct TVBoxConfigView: View {
                     ToolbarItem(placement: .confirmationAction) {
                         Button("解析导入") {
                             let t = pasteText; showPaste = false
-                            runTask {
-                                let r = try await store.importFromText(t) { statusMsg = $0 }
-                                return "已导入「\(r.name)」：\(r.sites.count) 点播站 · \(r.lives.count) 直播源"
-                            }
+                            runTask { summary(try await store.importText(t)) }
                         }.disabled(pasteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                 }
@@ -292,10 +302,7 @@ struct TVBoxConfigView: View {
                     ToolbarItem(placement: .confirmationAction) {
                         Button("添加") {
                             let n = manualName; let a = manualAPI; let ad = manualAdult; showManual = false
-                            runTask {
-                                let s = try await store.addManualSite(name: n, apiRaw: a, adult: ad)
-                                return "已添加「\(s.name)」· \(s.categories.count) 分类 · \(s.latencyMs)ms"
-                            }
+                            runTask { summary(try await store.addManualSite(name: n, api: a, adult: ad)) }
                         }.disabled(!manualAPI.trimmingCharacters(in: .whitespaces).hasPrefix("http://") && !manualAPI.trimmingCharacters(in: .whitespaces).hasPrefix("https://"))
                     }
                 }
@@ -305,12 +312,20 @@ struct TVBoxConfigView: View {
             Button("取消", role: .cancel) {}
             Button("删除", role: .destructive) {
                 if let r = confirmDeleteRepo {
-                    store.removeRepo(r.id)
+                    store.remove(r.id)
                     statusMsg = "已删除「\(r.name)」"
                     statusError = false
                 }
             }
         } message: { Text("删除后该仓下的站点和直播源将从 TVBox 中移除，可随时重新导入。") }
+    }
+
+    private func summary(_ r: ImportResult) -> String {
+        switch r {
+        case .imported(let repo): return "已导入「\(repo.name)」：\(repo.sites.count) 点播站 · \(repo.lives.count) 直播源"
+        case .depot(let d, _): return "多仓「\(d.name)」：\(d.entries.count) 条线路，请选择一条"
+        case .attachment(let name): return "已保存文件 \(name)"
+        }
     }
 
     private func methodPill(_ icon: String, _ title: String, action: @escaping () -> Void) -> some View {
@@ -326,7 +341,7 @@ struct TVBoxConfigView: View {
         }.buttonStyle(.plain)
     }
 
-    private func runTask(_ work: @escaping () async throws -> String) {
+    private func runTask(_ work: @escaping @MainActor () async throws -> String) {
         guard !busy else { return }
         busy = true; statusError = false; statusMsg = "正在处理…"
         Task {
@@ -343,40 +358,37 @@ struct TVBoxConfigView: View {
 }
 
 private struct TVBoxSiteRow: View {
-    let site: TVBoxRepoSite
+    let ref: TVBoxSiteRef
+    let enabled: Bool
+    @ObservedObject var meters: TVBoxMeters
     let showDivider: Bool
     let onToggle: (Bool) -> Void
 
-    private static func fastHost(_ api: String) -> String {
-        guard let schemeEnd = api.range(of: "://") else { return "" }
-        let rest = api[schemeEnd.upperBound...]
-        let end = rest.firstIndex(where: { $0 == "/" || $0 == ":" || $0 == "?" }) ?? rest.endIndex
-        return String(rest[..<end])
-    }
-
     var body: some View {
-        let slow = site.latencyMs >= 400
-        let host = Self.fastHost(site.api)
-        let ping = site.latencyMs > 0 && site.latencyMs < 9999 ? " · \(site.latencyMs)ms" : (site.latencyMs >= 9999 ? " · 超时" : "")
+        let site = ref.site
+        let ms = meters.latency[ref.uid] ?? 0
+        let slow = ms < 0 || ms >= 400
+        let host = site.kind.isCode ? site.api.substringAfterLast("/") : TVBoxUrl.host(site.api)
+        let ping = ms > 0 ? " · \(ms)ms" : (ms < 0 ? " · 超时" : "")
         VStack(spacing: 0) {
             HStack(spacing: 11) {
                 Circle()
-                    .fill(!site.enabled ? STVTheme.secondary.opacity(0.4) : (slow ? STVTheme.accentWarm : Color(red: 0.37, green: 0.82, blue: 0.54)))
+                    .fill(!enabled ? STVTheme.secondary.opacity(0.4) : (slow ? STVTheme.accentWarm : Color(red: 0.37, green: 0.82, blue: 0.54)))
                     .frame(width: 7, height: 7)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(site.name).font(.subheadline.weight(.semibold)).foregroundStyle(STVTheme.text).lineLimit(1)
-                        Text(slow ? "较慢" : "m3u8")
+                        Text(slow ? "较慢" : site.kind.badge)
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(slow ? STVTheme.secondary : STVTheme.accent)
                             .padding(.horizontal, 6).padding(.vertical, 1.5)
                             .background((slow ? STVTheme.glass : STVTheme.accent.opacity(0.15)), in: RoundedRectangle(cornerRadius: 5))
                     }
-                    Text("\(host) · \(site.categories.count) 分类\(ping)")
+                    Text("\(host)\(ping)")
                         .font(.caption2).foregroundStyle(slow ? STVTheme.accentWarm : STVTheme.secondary).lineLimit(1)
                 }
                 Spacer()
-                Toggle("", isOn: Binding(get: { site.enabled }, set: onToggle)).labelsHidden().tint(STVTheme.accent)
+                Toggle("", isOn: Binding(get: { enabled }, set: onToggle)).labelsHidden().tint(STVTheme.accent)
             }
             .padding(.vertical, 10)
             if showDivider { Divider().overlay(STVTheme.text.opacity(0.07)) }
@@ -385,7 +397,8 @@ private struct TVBoxSiteRow: View {
 }
 
 private struct TVBoxLiveRow: View {
-    let live: TVBoxRepoLive
+    let live: TVBoxLive
+    let enabled: Bool
     let showDivider: Bool
     let onWatch: () -> Void
     let onToggle: (Bool) -> Void
@@ -396,7 +409,7 @@ private struct TVBoxLiveRow: View {
                 Circle().fill(Color(red: 1.0, green: 0.42, blue: 0.42)).frame(width: 7, height: 7)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(live.name).font(.subheadline.weight(.semibold)).foregroundStyle(STVTheme.text).lineLimit(1)
-                    Text(live.channels.isEmpty ? "进入观看时自动拉取频道列表" : "\(live.channels.count) 个频道 · HTTP(S) 直播源")
+                    Text(live.url.isEmpty ? "内嵌频道" : TVBoxUrl.host(live.url))
                         .font(.caption2).foregroundStyle(STVTheme.secondary).lineLimit(1)
                 }
                 Spacer()
@@ -406,7 +419,7 @@ private struct TVBoxLiveRow: View {
                         .padding(.horizontal, 11).frame(height: 28)
                         .background(STVTheme.accent.opacity(0.15), in: Capsule())
                 }.buttonStyle(.plain)
-                Toggle("", isOn: Binding(get: { live.enabled }, set: onToggle)).labelsHidden().tint(STVTheme.accent)
+                Toggle("", isOn: Binding(get: { enabled }, set: onToggle)).labelsHidden().tint(STVTheme.accent)
             }
             .padding(.vertical, 10)
             if showDivider { Divider().overlay(STVTheme.text.opacity(0.07)) }
