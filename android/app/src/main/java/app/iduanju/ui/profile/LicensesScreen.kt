@@ -15,7 +15,7 @@ import app.iduanju.ui.theme.IdjThemeColors
 @Composable
 fun LicensesScreen(onBack: () -> Unit) {
     SettingsListPage("开源许可", onBack, spacing = 14.dp) {
-        license("i短剧", "GPL-3.0 · 禁止付费分发", "本应用源码以 GPL-3.0 开源。")
+        license("muju", "GPL-3.0 · 禁止付费分发", "本应用源码以 GPL-3.0 开源。")
         license("AndroidX · Jetpack Compose · Media3", "Apache License 2.0", "界面、播放器（ExoPlayer、HLS、DASH、SmoothStreaming、RTSP、RTMP、OkHttp 数据源）。")
         license("Jellyfin Media3 FFmpeg Decoder", "GPL-3.0", "音频软件解码。使用 org.jellyfin.media3:media3-ffmpeg-decoder:1.5.0+1，源码见 github.com/jellyfin/jellyfin-androidx-media。")
         license("OkHttp · Okio", "Apache License 2.0 · Square, Inc.", "网络请求与安全 DNS。")

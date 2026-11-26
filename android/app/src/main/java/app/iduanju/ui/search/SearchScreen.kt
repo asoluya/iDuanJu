@@ -148,7 +148,7 @@ fun SearchScreen(
     suspend fun loadHot() {
         hotErr = null
         try {
-            val items = withContext(Dispatchers.IO) { IdjApp.instance.hongguo.rank(HGRankSub.hotSearch, HGRankGenre.all).items }
+            val items = withContext(Dispatchers.IO) { IdjApp.instance.hongguo.rank(HGRankSub.hot, HGRankGenre.all).items.take(10) }
             hot = items
             HotCache.hot = items
             if (items.isEmpty()) hotErr = "排行暂无数据"
@@ -545,7 +545,7 @@ private fun SearchLandingContent(
 
         item("hotHeader", full, "hot") {
             Column {
-                SectionTitle("搜索实时排行")
+                SectionTitle("热播榜")
                 when {
                     hot.isEmpty() && hotErr != null -> ErrorState("加载失败", note = hotErr, onRetry = onRetryHot)
                     hot.isEmpty() -> Row(horizontalArrangement = Arrangement.spacedBy(gap)) {

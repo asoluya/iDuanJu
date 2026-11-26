@@ -118,6 +118,32 @@ fun DetailScreen(seriesId: String, onBack: () -> Unit, onPlay: (String, Int) -> 
             err = e.message ?: "加载失败"
         }
     }
+    var seasons by remember(seriesId) { mutableStateOf<List<HGSeries>>(emptyList()) }
+    LaunchedEffect(d?.seriesId) {
+        val det = d ?: return@LaunchedEffect
+        val isHg = app.iduanju.data.Catalog.isHongguo(seriesId) ||
+            app.iduanju.core.plugin.PluginVideo.pluginId(seriesId) == "com.idj.bundled.hongguo"
+        if (!isHg || det.title.isBlank()) { seasons = emptyList(); return@LaunchedEffect }
+        val (base, _) = seasonParts(det.title)
+        if (base.isBlank()) { seasons = emptyList(); return@LaunchedEffect }
+        SeasonCache.byBase[base]?.let { seasons = it; return@LaunchedEffect }
+        val found = withContext(Dispatchers.IO) {
+            runCatching { IdjApp.instance.hongguo.search(base).items }.getOrDefault(emptyList())
+        }
+        val bySeason = sortedMapOf<Int, HGSeries>()
+        fun consider(x: HGSeries) {
+            if (x.seriesId.isBlank()) return
+            val (b, n) = seasonParts(x.title)
+            if (b == base) bySeason.putIfAbsent(n, x)
+        }
+        found.forEach(::consider)
+        det.relatedSeries.forEach(::consider)
+        val (_, curN) = seasonParts(det.title)
+        bySeason[curN] = HGSeries(seriesId = det.seriesId, title = det.title, cover = det.cover, episodeCount = det.totalEps)
+        val list = bySeason.values.toList()
+        if (list.size > 1) SeasonCache.byBase[base] = list
+        seasons = list
+    }
     val metrics = LocalLayoutMetrics.current
     val isExpanded = metrics.tier == SizeTier.Expanded
     val isTabletLandscape = isExpanded && metrics.isLandscape
@@ -236,6 +262,7 @@ fun DetailScreen(seriesId: String, onBack: () -> Unit, onPlay: (String, Int) -> 
                             playTitle = playTitle,
                             startEp = startEp,
                             onActions = { actionsBottom = it },
+                            seasons = seasons,
                             showActions = false,
                         )
                     }
@@ -299,7 +326,7 @@ fun DetailScreen(seriesId: String, onBack: () -> Unit, onPlay: (String, Int) -> 
                     )
                     val dd = d
                     when {
-                        dd != null -> DetailBody(dd, seriesId, resume, eps, lineIndex, selectLine, picker, play, onOpenSeries, playTitle, startEp) { actionsBottom = it }
+                        dd != null -> DetailBody(dd, seriesId, resume, eps, lineIndex, selectLine, picker, play, onOpenSeries, playTitle, startEp, seasons = seasons) { actionsBottom = it }
                         err != null -> ErrorState(err!!, Modifier.padding(top = 12.dp)) { reload++ }
                         else -> Column(Modifier.padding(horizontal = 20.dp).padding(top = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             SkeletonBlock(Modifier.fillMaxWidth().height(66.dp), 16.dp)
@@ -590,6 +617,7 @@ private fun DetailBody(
     d: HGSeriesDetail, sid: String, resume: app.iduanju.data.WatchProgress?, eps: List<HGEpisode>, lineIndex: Int, onLine: (Int) -> Unit, picker: EpisodePickerState,
     onPlay: (String, Int) -> Unit, onOpenSeries: (String) -> Unit, playTitle: String, startEp: Int,
     showActions: Boolean = true,
+    seasons: List<HGSeries> = emptyList(),
     onActions: (Float) -> Unit,
 ) {
     val c = IdjThemeColors
@@ -639,6 +667,8 @@ private fun DetailBody(
         }
     }
     if (d.desc.isNotEmpty()) Intro(d.desc)
+
+    if (seasons.size > 1) SeasonRow(seasons, sid, onOpenSeries)
 
     // 6 per row on phones, 8 on medium, 10 in the tablet-landscape two-pane body.
     val epCols = when (LocalLayoutMetrics.current.tier) { SizeTier.Compact -> 6; SizeTier.Medium -> 8; SizeTier.Expanded -> 10 }
@@ -862,6 +892,52 @@ private fun RelatedShelf(
                 }
                 Text(s.title, color = c.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
                 if (s.episodeCount > 0) Text("${s.episodeCount} 集", color = c.secondary, fontSize = 11.sp, maxLines = 1, modifier = Modifier.padding(top = 2.dp))
+            }
+        }
+    }
+}
+
+/** Multi-season unification: strip a trailing 第X季 suffix to get the show's base title and season number (1 when absent). */
+private val seasonSuffixRe = Regex("""\s*第\s*([0-9]+|[一二三四五六七八九十]{1,3})\s*季\s*$""")
+
+private fun cnToInt(t: String): Int? {
+    t.toIntOrNull()?.let { return it }
+    val digits = mapOf('一' to 1, '二' to 2, '三' to 3, '四' to 4, '五' to 5, '六' to 6, '七' to 7, '八' to 8, '九' to 9)
+    val ten = t.indexOf('十')
+    if (ten >= 0) {
+        val tens = if (ten == 0) 1 else digits[t[0]] ?: return null
+        val ones = if (ten == t.lastIndex) 0 else digits[t[ten + 1]] ?: return null
+        return tens * 10 + ones
+    }
+    return digits[t.singleOrNull() ?: return null]
+}
+
+private fun seasonParts(title: String): Pair<String, Int> {
+    val m = seasonSuffixRe.find(title)
+    if (m != null) cnToInt(m.groupValues[1])?.let { return title.substring(0, m.range.first).trim() to it }
+    return title.trim() to 1
+}
+
+private fun seasonChipLabel(title: String): String =
+    seasonSuffixRe.find(title)?.let { "第${it.groupValues[1]}季" } ?: "第一季"
+
+private object SeasonCache { val byBase = mutableMapOf<String, List<HGSeries>>() }
+
+/** Season picker: one chip per season of the same show; tapping opens that season's own detail page. */
+@Composable
+private fun SeasonRow(seasons: List<HGSeries>, currentSid: String, onOpenSeries: (String) -> Unit) {
+    val c = IdjThemeColors
+    SectionHeader2("选季", "共 ${seasons.size} 季", inset = 20.dp, modifier = Modifier.padding(top = 22.dp))
+    LazyRow(Modifier.padding(top = 10.dp), contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(seasons, key = { it.seriesId }) { x ->
+            val on = x.seriesId == currentSid
+            Box(
+                Modifier.height(34.dp).clip(CircleShape).background(if (on) c.accent else c.glass)
+                    .clickable(enabled = !on) { onOpenSeries(x.seriesId) }
+                    .padding(horizontal = 14.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(seasonChipLabel(x.title), color = if (on) Color.White else c.text, fontSize = 13.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
             }
         }
     }

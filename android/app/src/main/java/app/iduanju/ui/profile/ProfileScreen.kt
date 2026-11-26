@@ -127,7 +127,7 @@ fun ProfileScreen(onOpenDetail: (String) -> Unit = {}) {
             }
         }
         item("footer", "footer") {
-            Text(message ?: "本应用仅提供播放与阅读框架，不含任何内置片源；观看记录和收藏只保存在本机。\ni短剧 $ver",
+            Text(message ?: "本应用仅提供播放与阅读框架，不含任何内置片源；观看记录和收藏只保存在本机。\nmuju $ver",
                 color = if (message != null) c.accent else c.secondary, fontSize = 12.sp, lineHeight = 18.sp, modifier = Modifier.padding(horizontal = 16.dp))
         }
     }

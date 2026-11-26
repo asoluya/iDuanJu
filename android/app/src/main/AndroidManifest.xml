@@ -12,7 +12,7 @@
         android:name=".IdjApp"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
-        android:label="i短剧"
+        android:label="muju"
         android:supportsRtl="true"
         android:theme="@style/Theme.Idj"
         android:usesCleartextTraffic="true"

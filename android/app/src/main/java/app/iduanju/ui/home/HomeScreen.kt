@@ -18,6 +18,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -59,6 +60,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.selected
@@ -293,7 +296,7 @@ fun HomeScreen(onOpenDetail: (String) -> Unit, onSearch: () -> Unit = {}, onPlay
                         Spacer(Modifier.height(14.dp))
                     }
                 }
-                ChannelBar(pages, pager.currentPage, onMore = { HomeChannelSheetOpen.value = true }) { scope.launch { pager.animateScrollToPage(it) } }
+                ChannelBar(pages, pager.currentPage) { scope.launch { pager.animateScrollToPage(it) } }
                 if (HomeChannelSheetOpen.value) ChannelSheet(pages, pager.currentPage, onDismiss = { HomeChannelSheetOpen.value = false }) { page, sub ->
                     HomeChannelSheetOpen.value = false
                     if (sub != null) HomeSubSel.map[pages[page].label] = sub
@@ -396,12 +399,48 @@ private fun SheetTile(text: String, on: Boolean, modifier: Modifier, onClick: ()
     }
 }
 
-/** iOS HomeChannelBar: unselected 17 secondary, selected 24 heavy + 26x4 accent capsule; selected auto-centred. */
+/** iOS HomeChannelBar: unselected 17 secondary, selected 24 heavy + 26x4 accent capsule; selected auto-centred.
+ *  Long-press a tab and drag sideways to reorder; the new order persists to homePageOrder on drop. */
 @Composable
-private fun ChannelBar(items: List<HomePageRef>, selected: Int, onMore: () -> Unit, onSelect: (Int) -> Unit) {
+private fun ChannelBar(items: List<HomePageRef>, selected: Int, onSelect: (Int) -> Unit) {
     val c = IdjThemeColors
     val state = rememberLazyListState()
+    val settings = IdjApp.instance.settings
+    var order by remember { mutableStateOf(items) }
+    LaunchedEffect(items) {
+        if (items.map { it.key } != order.map { it.key }) {
+            val cur = order.map { it.key }
+            order = items.sortedBy { val i = cur.indexOf(it.key); if (i < 0) Int.MAX_VALUE else i }
+        }
+    }
+    var dragKey by remember { mutableStateOf<String?>(null) }
+    var dragDx by remember { mutableFloatStateOf(0f) }
+    val spacingPx = with(LocalDensity.current) { 22.dp.toPx() }
+    val itemsState = rememberUpdatedState(items)
+    val selectedState = rememberUpdatedState(selected)
+    val selectedKey = items.getOrNull(selected)?.key
+
+    fun trySwap() {
+        val key = dragKey ?: return
+        val info = state.layoutInfo
+        val dragged = info.visibleItemsInfo.firstOrNull { it.key == key } ?: return
+        val curIdx = order.indexOfFirst { it.key == key }
+        if (curIdx < 0) return
+        val center = dragged.offset + dragDx + dragged.size / 2f
+        val next = info.visibleItemsInfo.firstOrNull { it.index == dragged.index + 1 }
+        if (next != null && center > next.offset + next.size / 2f) {
+            val m = order.toMutableList(); val moved = m.removeAt(curIdx); m.add(curIdx + 1, moved)
+            order = m; dragDx -= (next.size + spacingPx); return
+        }
+        val prev = info.visibleItemsInfo.firstOrNull { it.index == dragged.index - 1 }
+        if (prev != null && center < prev.offset + prev.size / 2f) {
+            val m = order.toMutableList(); val moved = m.removeAt(curIdx); m.add(curIdx - 1, moved)
+            order = m; dragDx += (prev.size + spacingPx)
+        }
+    }
+
     LaunchedEffect(selected) {
+        if (dragKey != null) return@LaunchedEffect
         val info = state.layoutInfo
         val item = info.visibleItemsInfo.firstOrNull { it.index == selected }
         if (item != null) {
@@ -410,20 +449,40 @@ private fun ChannelBar(items: List<HomePageRef>, selected: Int, onMore: () -> Un
         } else state.animateScrollToItem(selected)
     }
     Row(Modifier.fillMaxWidth().padding(bottom = 12.dp, start = 20.dp), verticalAlignment = Alignment.Bottom) {
-        LazyRow(state = state, modifier = Modifier.weight(1f).fadeEnd(0.9f), horizontalArrangement = Arrangement.spacedBy(22.dp), verticalAlignment = Alignment.Bottom) {
-            itemsIndexed(items, key = { _, p -> p.key }, contentType = { _, _ -> "channel" }) { i, page -> ChannelTab(page.label, i == selected) { onSelect(i) } }
+        LazyRow(state = state, userScrollEnabled = dragKey == null, modifier = Modifier.weight(1f).fadeEnd(0.9f), horizontalArrangement = Arrangement.spacedBy(22.dp), verticalAlignment = Alignment.Bottom) {
+            itemsIndexed(order, key = { _, p -> p.key }, contentType = { _, _ -> "channel" }) { _, page ->
+                val dragging = page.key == dragKey
+                ChannelTab(page.label, page.key == selectedKey,
+                    modifier = Modifier
+                        .zIndex(if (dragging) 1f else 0f)
+                        .graphicsLayer { translationX = if (dragging) dragDx else 0f; alpha = if (dragging) 0.85f else 1f }
+                        .pointerInput(page.key) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = { dragKey = page.key; dragDx = 0f },
+                                onDragEnd = {
+                                    val selKey = itemsState.value.getOrNull(selectedState.value)?.key
+                                    settings.saveHomePageOrder(order.map { it.key })
+                                    val newSel = order.indexOfFirst { it.key == selKey }
+                                    dragKey = null; dragDx = 0f
+                                    if (newSel >= 0 && newSel != selectedState.value) onSelect(newSel)
+                                },
+                                onDragCancel = { dragKey = null; dragDx = 0f },
+                                onDrag = { change, amount -> change.consume(); dragDx += amount.x; trySwap() }
+                            )
+                        }
+                ) { onSelect(items.indexOfFirst { it.key == page.key }) }
+            }
             item("end") { Spacer(Modifier.width(12.dp)) }
         }
-        PlainIconButton(Icons.Filled.KeyboardArrowDown, "展开全部频道", tint = c.secondary, iconSize = 24.dp, onClick = onMore)
     }
 }
 
 /** `.ttabs`: selected 24 sp heavy with a 26×4 accent bar under its leading edge. */
 @Composable
-private fun ChannelTab(label: String, on: Boolean, onClick: () -> Unit) {
+private fun ChannelTab(label: String, on: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val c = IdjThemeColors
     val bar = animateFloatAsState(if (on) 1f else 0f, DS.select(), label = "channelBar")
-    Box(Modifier.heightIn(min = 44.dp).selectable(on, remember { MutableInteractionSource() }, null, role = Role.Tab, onClick = onClick)
+    Box(modifier.heightIn(min = 44.dp).selectable(on, remember { MutableInteractionSource() }, null, role = Role.Tab, onClick = onClick)
         .semantics { contentDescription = "home.channel.$label" }, contentAlignment = Alignment.BottomStart) {
         Text(label, color = if (on) c.text else c.secondary,
             fontSize = if (on) 24.sp else 17.sp, fontWeight = if (on) FontWeight.ExtraBold else FontWeight.Normal,

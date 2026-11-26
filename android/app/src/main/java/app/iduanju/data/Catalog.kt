@@ -93,6 +93,7 @@ object Catalog {
                 isCMS(sid) -> MacCMS.detail(cmsSite(sid), sid)
                 PluginVideo.isPlugin(sid) -> friendly { plugin(sid).detail(sid) }
                 TGVideo.isTG(sid) -> IdjApp.instance.tg.let { TGVideo.detail(it.client, sid, it.channel(sid.removePrefix("tg:").substringBefore(':'))) }
+                isHongguo(sid) -> IdjApp.instance.hongguo.detail(sid, web)
                 else -> throw ProviderException.invalid("请先在「我的 → 插件」导入对应片源插件")
             }
             if (loaded.episodes.isNotEmpty() && !isLive(sid)) detailCache[sid] = loaded to System.currentTimeMillis()
@@ -124,6 +125,7 @@ object Catalog {
         isCMS(ep.vid) -> MacCMS.resolve(cmsSite(ep.vid), ep)
         PluginVideo.isPlugin(ep.vid) -> friendly { plugin(ep.vid).resolve(ep) }
         TGVideo.isTG(ep.vid) -> TGVideo.resolve(IdjApp.instance.tg.client, ep)
+        isHongguo(ep.vid) -> IdjApp.instance.hongguo.resolve(ep.vid)
         else -> throw ProviderException.invalid("请先在「我的 → 插件」导入对应片源插件")
     }
 }
