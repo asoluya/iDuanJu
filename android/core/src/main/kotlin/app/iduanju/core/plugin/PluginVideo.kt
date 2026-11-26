@@ -29,12 +29,11 @@ object PluginOut {
 class PluginVideo(val inst: PluginInstance, private val extraDomains: List<String> = emptyList()) {
     val m get() = inst.bundle.manifest
     val pid get() = m.id
-    private val media get() = DomainPolicy(m.mediaDomains + m.httpDomains + extraDomains)
     var categories: List<CMSCategory> = emptyList(); private set
 
     private fun cover(u: String, headers: Map<String, String> = emptyMap()): String {
         val h = runCatching { java.net.URI(u).host }.getOrNull() ?: return ""
-        if (!media.allows(h) || NetGuard.isIPLiteral(h)) return ""
+        if (NetGuard.isIPLiteral(h)) return ""
         return if (headers.isNotEmpty()) PluginMedia.ref(pid, u, headers) else u
     }
 
@@ -88,12 +87,11 @@ class PluginVideo(val inst: PluginInstance, private val extraDomains: List<Strin
     fun resolve(ep: HGEpisode): HGResolvedVideo {
         val (_, sidRaw, eid) = parseEp(ep.vid) ?: throw ProviderException.invalid("插件剧集 id 无效")
         val o = inst.call("play", JSONObject().put("line", ep.page ?: "").put("episodeId", eid).put("id", sidRaw)) as? JSONObject ?: JSONObject()
-        val pol = media
         val streams = PluginOut.objs(o.opt("streams"), 12).mapIndexedNotNull { i, st ->
             val u = PluginOut.url(st.opt("url"))
             val url = runCatching { java.net.URI(u) }.getOrNull(); val host = url?.host
-            if (url == null || host == null || url.scheme != "https" || url.rawUserInfo != null || (url.port!=-1 && url.port!=443) || !pol.allows(host) || NetGuard.isIPLiteral(host) || (inst.host.fixture==null && NetGuard.resolvesToBlocked(host))) {
-                inst.host.log("✕ 丢弃未授权/非 https 的流地址 ${host ?: u.take(40)}"); return@mapIndexedNotNull null
+            if (url == null || host == null || url.scheme != "https" || url.rawUserInfo != null || (url.port!=-1 && url.port!=443) || NetGuard.isIPLiteral(host) || (inst.host.fixture==null && NetGuard.resolvesToBlocked(host))) {
+                inst.host.log("✕ 丢弃非 https/不安全的流地址 ${host ?: u.take(40)}"); return@mapIndexedNotNull null
             }
             val fmt = st.optString("format").ifEmpty { if (u.contains(".m3u8")) "hls" else "mp4" }
             val key = PluginOut.s(st.opt("key"), 64)
@@ -106,7 +104,7 @@ class PluginVideo(val inst: PluginInstance, private val extraDomains: List<Strin
             if (h.keys.none { it.equals("user-agent", true) }) h["User-Agent"] = inst.host.learnedUA ?: PluginHost.DEFAULT_UA
             HGStream("p$i", PluginOut.s(st.opt("name"), 40).ifEmpty { host }, u, key = key, kind = kind, headers = h)
         }
-        val first = streams.firstOrNull() ?: throw ProviderException.upstream("插件没有返回可播放的地址（需 https 且在 media 白名单内）")
+        val first = streams.firstOrNull() ?: throw ProviderException.upstream("插件没有返回可播放的地址（需 https）")
         return HGResolvedVideo(ep.vid, first.url, streams = streams, expiresAt = o.optLong("expiresAt"))
     }
 

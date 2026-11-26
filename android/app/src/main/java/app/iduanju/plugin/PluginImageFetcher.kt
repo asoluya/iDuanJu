@@ -23,8 +23,8 @@ import java.util.concurrent.TimeUnit
 class PluginImageFetcher(private val ref: String, private val options: Options) : Fetcher {
     override suspend fun fetch(): FetchResult {
         val r = PluginMedia.parse(ref) ?: error("图片地址无效")
-        val policy = IdjApp.instance.plugins.mediaPolicy(r.plugin) ?: error("插件未启用")
-        fun check(u: okhttp3.HttpUrl) { if ((u.scheme != "https" && u.scheme != "http") || !policy.allows(u.host) || NetGuard.isIPLiteral(u.host) || NetGuard.resolvesToBlocked(u.host)) error("图片域名未授权：${u.host}") }
+        IdjApp.instance.plugins.mediaPolicy(r.plugin) ?: error("插件未启用")
+        fun check(u: okhttp3.HttpUrl) { if ((u.scheme != "https" && u.scheme != "http") || NetGuard.isIPLiteral(u.host) || NetGuard.resolvesToBlocked(u.host)) error("图片地址不安全：${u.host}") }
         var url = r.url.toHttpUrlOrNull() ?: error("图片地址无效")
         var bytes: ByteArray? = null
         for (hop in 0..5) {
