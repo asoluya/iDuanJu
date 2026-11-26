@@ -66,6 +66,14 @@ class PluginStore(private val ctx: Context,
             done += id; changed = true
         }
         if (changed) sp.edit().putStringSet("bundledSeeded", done).apply()
+        // One-time: the patched subscription Hongguo (com.iduanju.hongguo, now the bundled file) replaces the legacy bundled Hongguo.
+        if (!sp.getBoolean("hongguoSwapped", false)) {
+            val legacy = plugins.firstOrNull { it.id == "com.idj.bundled.hongguo" }
+            if (legacy != null && legacy.origin == "内置" && plugins.any { it.id == "com.iduanju.hongguo" }) {
+                runCatching { remove(legacy.id) }
+            }
+            sp.edit().putBoolean("hongguoSwapped", true).apply()
+        }
     }
 
     /** One-time seed of the official plugin subscription: added once (recorded in prefs); if the user removes it, it never comes back. A failed fetch leaves the seed pending so the next launch retries. Blocking; call off the main thread. */
