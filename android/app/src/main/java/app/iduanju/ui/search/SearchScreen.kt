@@ -145,7 +145,16 @@ fun SearchScreen(
 
     suspend fun loadHot() {
         hotErr = null
-        hot = emptyList()
+        try {
+            val items = withContext(Dispatchers.IO) { IdjApp.instance.hongguo.rank(HGRankSub.hotSearch, HGRankGenre.all).items }
+            hot = items
+            HotCache.hot = items
+            if (items.isEmpty()) hotErr = "排行暂无数据"
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            hotErr = e.message?.takeIf { it.isNotBlank() } ?: "加载失败"
+        }
     }
     val uiScope = rememberCoroutineScope()
 
