@@ -525,7 +525,7 @@ fun GlassTabBar(
                                 Spacer(Modifier.width(10.dp))
                                 // At rest the dock is a tap target, not a text field: tapping it opens the top input bar.
                                 Text(
-                                    searchQuery.ifEmpty { "搜索短剧 / 演员 / 频道…" },
+                                    searchQuery.ifEmpty { "搜索短剧 / 演员…" },
                                     color = if (searchQuery.isEmpty()) c.secondary else c.text,
                                     fontSize = 15.sp,
                                     fontWeight = if (searchQuery.isEmpty()) FontWeight.Normal else FontWeight.Medium,

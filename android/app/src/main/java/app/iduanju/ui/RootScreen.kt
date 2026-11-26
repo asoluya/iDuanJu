@@ -75,8 +75,6 @@ fun RootScreen(initialRoute: String? = null) {
         nav.currentBackStackEntryFlow.first() // the graph is set while the first frame is laid out
         runCatching { nav.navigate(to) }
     }
-    val updater = app.iduanju.IdjApp.instance.updater
-    LaunchedEffect(Unit) { updater.autoCheck() }
     // The first player opens without paying for codec lists and native libraries on the main thread.
     LaunchedEffect(Unit) {
         kotlinx.coroutines.delay(1_500)
@@ -174,10 +172,10 @@ fun RootScreen(initialRoute: String? = null) {
             }
         }
 
-        // "home/<source>" (我的 → Telegram 频道 / 漫画) switches to the 首页 tab and shows that source page.
+        // "home/<source>" (我的 → 漫画) switches to the 首页 tab and shows that source page.
         val navigate: (String) -> Unit = { r ->
             if (r.startsWith("home/")) {
-                app.iduanju.ui.home.HomeJump.label = mapOf("channels" to "频道", "manga" to "漫画")[r.removePrefix("home/")]
+                app.iduanju.ui.home.HomeJump.label = mapOf("manga" to "漫画")[r.removePrefix("home/")]
                 tab = tabRoutes.indexOf("home")
                 goHome()
             } else nav.navigate(r)
@@ -242,7 +240,6 @@ fun RootScreen(initialRoute: String? = null) {
                         composable("hongguo-login") { app.iduanju.ui.profile.HongguoLoginScreen(onBack = { nav.popBackStack() }) }
                         composable("sources") { app.iduanju.ui.profile.SourcesScreen(onBack = { nav.popBackStack() }) }
                         composable("plugins") { app.iduanju.ui.profile.PluginsScreen(onBack = { nav.popBackStack() }) }
-                        composable("channels") { app.iduanju.tg.ChannelFeedPage(onPlay = { nav.navigate(Routes.player(it, 0)) }) }
                         composable("licenses") { app.iduanju.ui.profile.LicensesScreen(onBack = { nav.popBackStack() }) }
                         composable("actorRank") { app.iduanju.ui.profile.ActorRankScreen(onBack = { nav.popBackStack() }) }
                         composable("actor/{id}?name={name}&avatar={avatar}&role={role}&intro={intro}",
@@ -319,7 +316,6 @@ fun RootScreen(initialRoute: String? = null) {
                 .padding(start = 20.dp, end = 20.dp, bottom = if (showChromeNav && !metrics.useRail) 82.dp else 28.dp),
             backdrop = if (showChromeNav) backdrop else null,
         )
-        app.iduanju.update.UpdateDialog(updater)
         app.iduanju.ui.components.SiteVerifyHostOverlay()
     }
 }

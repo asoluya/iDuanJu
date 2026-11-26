@@ -92,7 +92,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** Mirrors iOS HomeSource / HomeTab (HomeView.swift). */
-enum class HomeSource(val label: String) { hongguo("红果"), huangguo("黄果"), ai("AI剧"), channels("频道"), manga("漫画") }
+enum class HomeSource(val label: String) { hongguo("红果"), huangguo("黄果"), ai("AI剧"), manga("漫画") }
 
 sealed class HomeTab(val subLabel: String) {
     data class Hongguo(val g: HGRankGenre) : HomeTab(
@@ -171,7 +171,6 @@ internal fun homePages(): List<HomePageRef> {
     val natural = buildList {
         app.cms.visibleSites.filterNot { it.origin.equals("TVBox", ignoreCase = true) || it.origin.startsWith("TVBox") }.forEach { add(HomePageRef("cms:" + it.key, it.name, it)) }
         app.plugins.visible(adult).filter { it.type == "video" || it.type == "shortdrama" }.forEach { add(HomePageRef("plugin:" + it.id, it.name, it)) }
-        if (app.tg.visible(adult).isNotEmpty()) add(built(HomeSource.channels))
         if (app.manga.providers.isNotEmpty()) add(built(HomeSource.manga))
     }
     val order = app.settings.homePageOrder
@@ -218,7 +217,6 @@ fun HomeScreen(onOpenDetail: (String) -> Unit, onSearch: () -> Unit = {}, onPlay
                 GlassButton("导入插件 / 订阅", onClick = { go("plugins") })
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     GlassButton("导入 TVBox", tone = ButtonTone.Glass, size = ButtonSize.Small, onClick = { go("tvbox/config") })
-                    GlassButton("添加频道", tone = ButtonTone.Glass, size = ButtonSize.Small, onClick = { go("channels") })
                 }
             }
         }
@@ -312,7 +310,6 @@ fun HomeScreen(onOpenDetail: (String) -> Unit, onSearch: () -> Unit = {}, onPlay
                         is PluginStore.Installed -> PluginFeedPage(target, onOpenDetail)
                         HomeSource.huangguo -> app.iduanju.huangguo.HuangguoFeedPage(onOpenDetail)
                         HomeSource.manga -> app.iduanju.manga.MangaHomePage(onOpenManga)
-                        HomeSource.channels -> app.iduanju.tg.ChannelFeedPage(onPlay)
                         HomeSource.ai -> AiPage(onOpenDetail)
                         else -> FeedPage(target as HomeSource, onOpenDetail)
                     }
@@ -348,7 +345,7 @@ private val HomeChannelSheetOpen = mutableStateOf(false)
 
 /** Sub-tab chosen from the 频道 sheet, per home page label. */
 object HomeSubSel { val map = androidx.compose.runtime.mutableStateMapOf<String, Int>() }
-/** One-shot request from another tab (我的 → Telegram 频道 / 漫画) to show a home source page. */
+/** One-shot request from another tab (我的 → 漫画) to show a home source page. */
 object HomeJump { var label by androidx.compose.runtime.mutableStateOf<String?>(null) }
 
 /** iOS HomeChannelSheet: 「频道」 title + 完成, one section per page with its sub-channels as a 3-column grid of chips. */
@@ -364,7 +361,7 @@ private fun ChannelSheet(pages: List<HomePageRef>, current: Int, onDismiss: () -
                     is HomeSource -> when (p) {
                         HomeSource.huangguo -> listOf("视频站", "App 源")
                         HomeSource.ai -> p.subs().map { it.subLabel } + if (IdjApp.instance.cms.adultUnlocked) listOf("黄果 AI 站") else emptyList()
-                        HomeSource.channels, HomeSource.manga -> emptyList()
+                        HomeSource.manga -> emptyList()
                         else -> p.subs().map { it.subLabel }
                     }
                     else -> listOf(page.label)

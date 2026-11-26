@@ -42,7 +42,7 @@ private class FavoriteItem(val sid: String, val title: String, val cover: String
 
 /**
  * iOS ProfileView: 我的 · 红果账号 · 继续观看 · 我的收藏, then grouped link rows —
- * (观看历史 / 剧星榜 / 我的收藏) (Telegram 频道 / 漫画 / 下载管理) (片源管理 / 插件 / 开源许可) (maintenance), footer.
+ * (观看历史 / 剧星榜 / 我的收藏) (漫画) (片源管理 / 插件 / 开源许可) (maintenance), footer.
  * Settings live on their own pages (片源管理, 插件) instead of being laid out inline.
  */
 @Composable
@@ -104,29 +104,17 @@ fun ProfileScreen(onOpenDetail: (String) -> Unit = {}) {
                 LinkRow("片源管理", ProfileIcons.sources) { go("sources") }
             }
         }
-        item("content", "group") {
-            GroupItem("阅读与频道") {
-                val tgCount = ia.tg.visible(ia.cms.adultUnlocked).size
-                LinkRow("Telegram 频道", ProfileIcons.telegram, trailing = tgCount.takeIf { it > 0 }?.let { "$it 个" }) {
-                    go(if (tgCount > 0) "home/channels" else "channels")
-                }
-                if (ia.manga.providers.isNotEmpty()) {
-                    RowDivider()
+        if (ia.manga.providers.isNotEmpty()) {
+            item("content", "group") {
+                GroupItem("漫画") {
                     LinkRow("漫画", ProfileIcons.manga, trailing = ia.manga.favorites.size.takeIf { it > 0 }?.let { "收藏 $it" }) { go("home/manga") }
                 }
-                RowDivider()
-                LinkRow("下载管理", ProfileIcons.download, trailing = "暂未支持") { notify("Android 版暂不支持离线下载") }
             }
         }
         item("look", "group") { GroupItem("外观") { AppearanceRows() } }
         item("about", "group") {
             GroupItem {
                 LinkRow("开源许可", ProfileIcons.license) { go("licenses") }
-                RowDivider()
-                val up = ia.updater
-                LinkRow("检查更新", ProfileIcons.update, trailing = if (up.checking) "检查中…" else up.currentVersion.joinToString(".")) {
-                    scope.launch { up.manualCheck()?.let(notify) }
-                }
             }
         }
         item("maintenance", "group") {

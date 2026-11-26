@@ -54,7 +54,7 @@ fun SourcesScreen(onBack: () -> Unit) {
         Group("插件与采集站") {
             LinkRow("插件管理", ProfileIcons.plugin, sub = "导入 .idjplugin 插件、订阅、苹果 CMS 采集站；成人插件在这里解锁后才显示") { go("plugins") }
         }
-        Group("成人内容（默认隐藏）", footer = "开启后，你自行导入的成人采集站 / 插件 / Telegram 频道 / 漫画插件才会显示；所有结果一律过滤未成年人与非自愿题材。") {
+        Group("成人内容（默认隐藏）", footer = "开启后，你自行导入的成人采集站 / 插件 / 漫画插件才会显示；所有结果一律过滤未成年人与非自愿题材。") {
             SwitchRow("显示成人片源", ProfileIcons.film, "控制已导入的成人插件 / 频道 / 漫画 · 仅限年满 18 周岁", adult) {
                 if (it) confirmAdult = true else { ia.cms.adultUnlocked = false; message = "已隐藏成人片源" }
             }
