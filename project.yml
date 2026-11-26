@@ -4,6 +4,8 @@ options:
   deploymentTarget:
     iOS: "16.0"
   createIntermediateGroups: true
+  # Optional CPython runtime for Python spiders (IDJ_PYTHON=0 = without); never fails the generation.
+  preGenCommand: bash scripts/fetch-ios-python.sh
 settings:
   SWIFT_VERSION: "5.0"
   TARGETED_DEVICE_FAMILY: "1,2"
@@ -56,6 +58,9 @@ targets:
             mkdir -p "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/ui_novel_preview"
             cp -R "$SRCROOT/STVTests/Fixtures/ui_novel_preview/" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/ui_novel_preview/"
           fi
+      - name: Python runtime
+        basedOnDependencyAnalysis: false
+        script: bash "$SRCROOT/scripts/embed-ios-python.sh"
     info:
       path: STV/Info.plist
       properties:
