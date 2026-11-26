@@ -122,7 +122,7 @@ fun DetailScreen(seriesId: String, onBack: () -> Unit, onPlay: (String, Int) -> 
     LaunchedEffect(d?.seriesId) {
         val det = d ?: return@LaunchedEffect
         val isHg = app.iduanju.data.Catalog.isHongguo(seriesId) ||
-            app.iduanju.core.plugin.PluginVideo.pluginId(seriesId) == "com.idj.bundled.hongguo"
+            app.iduanju.core.plugin.PluginVideo.pluginId(seriesId)?.contains("hongguo") == true
         if (!isHg || det.title.isBlank()) { seasons = emptyList(); return@LaunchedEffect }
         val (base, _) = seasonParts(det.title)
         if (base.isBlank()) { seasons = emptyList(); return@LaunchedEffect }
@@ -668,11 +668,10 @@ private fun DetailBody(
     }
     if (d.desc.isNotEmpty()) Intro(d.desc)
 
-    if (seasons.size > 1) SeasonRow(seasons, sid, onOpenSeries)
-
     // 6 per row on phones, 8 on medium, 10 in the tablet-landscape two-pane body.
     val epCols = when (LocalLayoutMetrics.current.tier) { SizeTier.Compact -> 6; SizeTier.Medium -> 8; SizeTier.Expanded -> 10 }
     EpisodeSection(d, sid, resume, eps, lineIndex, onLine, picker, onPlay, inset = 20.dp, epCols = epCols, groupSize = 30)
+    if (seasons.size > 1) SeasonRow(seasons, sid, onOpenSeries)
     if (d.relatedSeries.size > 1) RelatedShelf(d.relatedSeries, d.seriesId, onOpenSeries)
     if (d.cast.isNotEmpty()) CastShelf(d.cast, inset = 20.dp)
 }
@@ -918,26 +917,27 @@ private fun seasonParts(title: String): Pair<String, Int> {
     return title.trim() to 1
 }
 
-private fun seasonChipLabel(title: String): String =
-    seasonSuffixRe.find(title)?.let { "第${it.groupValues[1]}季" } ?: "第一季"
-
 private object SeasonCache { val byBase = mutableMapOf<String, List<HGSeries>>() }
 
-/** Season picker: one chip per season of the same show; tapping opens that season's own detail page. */
+/** Season picker below the episodes: portrait posters like the home shelves; tapping opens that season's own detail page. */
 @Composable
 private fun SeasonRow(seasons: List<HGSeries>, currentSid: String, onOpenSeries: (String) -> Unit) {
     val c = IdjThemeColors
-    SectionHeader2("选季", "共 ${seasons.size} 季", inset = 20.dp, modifier = Modifier.padding(top = 22.dp))
-    LazyRow(Modifier.padding(top = 10.dp), contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    val cardWidth = 104.dp
+    val cardHeight = cardWidth * (4f / 3f)
+    SectionHeader2("选季", "共 ${seasons.size} 季", inset = 20.dp, modifier = Modifier.padding(top = 26.dp))
+    LazyRow(Modifier.padding(top = 12.dp), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         items(seasons, key = { it.seriesId }) { x ->
             val on = x.seriesId == currentSid
-            Box(
-                Modifier.height(34.dp).clip(CircleShape).background(if (on) c.accent else c.glass)
-                    .clickable(enabled = !on) { onOpenSeries(x.seriesId) }
-                    .padding(horizontal = 14.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(seasonChipLabel(x.title), color = if (on) Color.White else c.text, fontSize = 13.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
+            Column(Modifier.width(cardWidth).pressClick(0.97f, enabled = !on, label = x.title) { onOpenSeries(x.seriesId) }) {
+                Box(Modifier.size(cardWidth, cardHeight).then(if (on) Modifier.border(2.dp, c.accent, RoundedCornerShape(16.dp)).padding(4.dp) else Modifier)) {
+                    PosterArt(x.cover, Modifier.fillMaxSize(), corner = 12.dp)
+                    if (on) Box(Modifier.padding(6.dp).height(18.dp).clip(RoundedCornerShape(5.dp)).background(c.accent).padding(horizontal = 6.dp), contentAlignment = Alignment.Center) {
+                        Text("当前", color = c.onAccent, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+                Text(x.title, color = c.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
+                if (x.episodeCount > 0) Text("${x.episodeCount} 集", color = c.secondary, fontSize = 11.sp, maxLines = 1, modifier = Modifier.padding(top = 2.dp))
             }
         }
     }

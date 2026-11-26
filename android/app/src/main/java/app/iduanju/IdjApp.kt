@@ -20,8 +20,6 @@ class IdjApp : Application(), coil.ImageLoaderFactory {
         private set
     lateinit var plugins: app.iduanju.plugin.PluginStore
         private set
-    lateinit var tg: app.iduanju.tg.TGStore
-        private set
     lateinit var manga: app.iduanju.manga.MangaStore
         private set
     lateinit var huangguo: app.iduanju.core.huangguo.HuangguoClient
@@ -53,7 +51,6 @@ class IdjApp : Application(), coil.ImageLoaderFactory {
         tvbox = app.iduanju.tvbox.TVBoxStore(this)
         plugins = app.iduanju.plugin.PluginStore(this)
         Thread { runCatching { plugins.seedBundled() }; runCatching { plugins.seedDefaultSubscription() } }.start()
-        tg = app.iduanju.tg.TGStore(this)
         manga = app.iduanju.manga.MangaStore(this)
         huangguo = app.iduanju.core.huangguo.HuangguoClient(filesDir, app.iduanju.huangguo.PrefsMap(this), app.iduanju.huangguo.WebViewCookieJar)
         app.iduanju.core.hls.HLSAdFilter.enabled = settings.adStripEnabled

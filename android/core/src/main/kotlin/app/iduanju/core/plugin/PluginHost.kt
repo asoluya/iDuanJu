@@ -52,6 +52,7 @@ class PluginHost(
         override fun loadForRequest(url: HttpUrl): List<Cookie> = synchronized(cookies) { cookies.values.flatten().filter { it.matches(url) && it.expiresAt > System.currentTimeMillis() } }
         override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) = synchronized(this@PluginHost.cookies) {
             for (c in cookies) { val l = this@PluginHost.cookies.getOrPut(c.domain) { ArrayList() }; l.removeAll { it.name == c.name && it.path == c.path }; l.add(c) }
+            persistSession()
         }
     }
     private val baseHttp = OkHttpClient.Builder().cookieJar(jar).followRedirects(false).followSslRedirects(false).build()
@@ -65,6 +66,8 @@ class PluginHost(
     @Volatile var onVerifyRequired: ((String) -> Boolean)? = null
     /** Test hook: request → (status, headers, body). */
     @Volatile var fixture: ((String, String) -> Triple<Int, Map<String, String>, ByteArray>?)? = null
+
+    init { restoreSession() }
 
     /** Import cookies (e.g. from Android WebView CookieManager) into this plugin's jar after user verification. */
     fun importCookies(urlStr: String, rawCookieHeader: String) {
@@ -85,7 +88,11 @@ class PluginHost(
                 .expiresAt(System.currentTimeMillis() + 24 * 60 * 60_000L)
                 .build()
         }
-        if (parsed.isNotEmpty()) jar.saveFromResponse(url, parsed)
+        if (parsed.isNotEmpty()) {
+            log("🍪 导入验证 cookie: " + parsed.joinToString(", ") { it.name })
+            jar.saveFromResponse(url, parsed)
+            persistSession()
+        }
     }
 
     fun beginCall() { requestsThisCall = 0 }
@@ -190,6 +197,50 @@ class PluginHost(
         }
     }
 
+    // ---- verification session persistence (cookies + learned UA survive restarts) ----
+    private val sessionFile get() = File(dir, "cf_session.json")
+
+    private fun persistSession() {
+        runCatching {
+            val arr = JSONArray()
+            synchronized(cookies) {
+                for ((_, list) in cookies) for (ck in list) {
+                    arr.put(JSONObject()
+                        .put("name", ck.name).put("value", ck.value).put("domain", ck.domain)
+                        .put("path", ck.path).put("expiresAt", ck.expiresAt)
+                        .put("secure", ck.secure).put("httpOnly", ck.httpOnly))
+                }
+            }
+            val o = JSONObject().put("cookies", arr)
+            learnedUA?.let { o.put("ua", it) }
+            sessionFile.writeText(o.toString())
+        }
+    }
+
+    private fun restoreSession() {
+        runCatching {
+            if (!sessionFile.exists()) return
+            val o = JSONObject(sessionFile.readText())
+            if (o.has("ua")) learnedUA = o.optString("ua").ifBlank { null }
+            val arr = o.optJSONArray("cookies") ?: return
+            val now = System.currentTimeMillis()
+            synchronized(cookies) {
+                for (i in 0 until arr.length()) {
+                    val j = arr.getJSONObject(i)
+                    if (j.optLong("expiresAt") <= now) continue
+                    val b = Cookie.Builder()
+                        .name(j.getString("name")).value(j.getString("value"))
+                        .domain(j.getString("domain")).path(j.optString("path", "/"))
+                        .expiresAt(j.optLong("expiresAt"))
+                    if (j.optBoolean("secure")) b.secure()
+                    if (j.optBoolean("httpOnly")) b.httpOnly()
+                    val ck = b.build()
+                    cookies.getOrPut(ck.domain) { ArrayList() }.add(ck)
+                }
+            }
+        }
+    }
+
     private fun needStorage() { if (!manifest.storage) throw PluginException("E_PERMISSION", "manifest 没有声明 permissions.storage") }
 
     // ---- http ----
@@ -202,6 +253,10 @@ class PluginHost(
         headers["Accept-Language"] = "zh-CN,zh;q=0.9,en;q=0.7"
         a.optJSONObject("headers")?.let { h -> for (k in h.keys()) headers[k] = secretsIn(h.get(k).toString()) }
         headers.keys.filter { it.lowercase() in FORBIDDEN_HEADERS }.forEach { headers.remove(it) }
+        learnedUA?.let { ua ->
+            headers.keys.filter { it.equals("User-Agent", ignoreCase = true) }.forEach { headers.remove(it) }
+            headers["User-Agent"] = ua
+        }
         var body: ByteArray? = null; var ctype: String? = headers.entries.firstOrNull { it.key.equals("content-type", true) }?.value
         if (a.has("body") && !a.isNull("body")) {
             val b = a.get("body")

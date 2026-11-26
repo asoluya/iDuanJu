@@ -65,7 +65,7 @@ object SiteVerifyHost {
             val resultOk = AtomicBoolean(false)
             val finishFn: (String?, String?) -> Unit = { cookies, ua ->
                 if (completed.compareAndSet(false, true)) {
-                    if (cookies != null) {
+                    if (!cookies.isNullOrBlank()) {
                         onSynced(cookies, ua.orEmpty())
                         resultOk.set(true)
                     }
@@ -164,6 +164,10 @@ fun SiteVerifyHostOverlay() {
                         webViewClient = object : WebViewClient() {
                             override fun onPageFinished(view: WebView?, url: String?) {
                                 runCatching { CookieManager.getInstance().flush() }
+                                // Clearance cookie present means the challenge is passed: finish automatically
+                                // instead of relying on the user tapping 完成 at the right moment.
+                                val ck = url?.let { runCatching { CookieManager.getInstance().getCookie(it) }.getOrNull() }.orEmpty()
+                                if (ck.contains("cf_clearance=")) completeWithCurrentCookies()
                             }
                         }
                         webView = this

@@ -8,7 +8,6 @@ import app.iduanju.core.hongguo.HGSeriesDetail
 import app.iduanju.core.plugin.PluginException
 import app.iduanju.core.plugin.PluginVideo
 import app.iduanju.core.util.ProviderException
-import app.iduanju.core.tg.TGVideo
 import app.iduanju.core.tvbox.LiveKey
 import app.iduanju.core.tvbox.TVBoxId
 import kotlinx.coroutines.Dispatchers
@@ -60,8 +59,7 @@ object Catalog {
     /** A live channel list: no timeline, no progress, never cached. */
     fun isLive(sid: String) = TVBoxId.isLive(sid)
     fun isHongguo(sid: String) = !TVBoxId.isTVBox(sid) && !isCMS(sid) && !PluginVideo.isPlugin(sid) &&
-        !app.iduanju.core.huangguo.HuangguoClient.isHuangguo(sid) && !TGVideo.isTG(sid)
-
+        !app.iduanju.core.huangguo.HuangguoClient.isHuangguo(sid)
     private fun cmsSite(sid: String) = MacCMS.parseSid(sid)?.first?.let { IdjApp.instance.cms.site(it) }
         ?: throw ProviderException.invalid("采集站已删除")
 
@@ -92,7 +90,6 @@ object Catalog {
                 TVBoxId.isTVBox(sid) -> IdjApp.instance.tvbox.detail(sid).also { if (it.title.isEmpty()) it.title = peekTitle(sid); if (it.cover.isEmpty()) it.cover = peekCover(sid) }
                 isCMS(sid) -> MacCMS.detail(cmsSite(sid), sid)
                 PluginVideo.isPlugin(sid) -> friendly { plugin(sid).detail(sid) }
-                TGVideo.isTG(sid) -> IdjApp.instance.tg.let { TGVideo.detail(it.client, sid, it.channel(sid.removePrefix("tg:").substringBefore(':'))) }
                 isHongguo(sid) -> IdjApp.instance.hongguo.detail(sid, web)
                 else -> throw ProviderException.invalid("请先在「我的 → 插件」导入对应片源插件")
             }
@@ -124,7 +121,6 @@ object Catalog {
         TVBoxId.isTVBox(ep.vid) -> IdjApp.instance.tvbox.resolve(ep)
         isCMS(ep.vid) -> MacCMS.resolve(cmsSite(ep.vid), ep)
         PluginVideo.isPlugin(ep.vid) -> friendly { plugin(ep.vid).resolve(ep) }
-        TGVideo.isTG(ep.vid) -> TGVideo.resolve(IdjApp.instance.tg.client, ep)
         isHongguo(ep.vid) -> IdjApp.instance.hongguo.resolve(ep.vid)
         else -> throw ProviderException.invalid("请先在「我的 → 插件」导入对应片源插件")
     }

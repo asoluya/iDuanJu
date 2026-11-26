@@ -96,8 +96,8 @@ class PluginStore(private val ctx: Context,
         val host = PluginHost(b.manifest, File(root, id), log = { log(id, it) }).apply {
             onVerifyRequired = { url ->
                 app.iduanju.ui.components.SiteVerifyHost.requestUserVerificationBlocking(b.manifest.name, url) { rawCookies, ua ->
-                    importCookies(url, rawCookies)
                     if (ua.isNotBlank()) learnedUA = ua
+                    importCookies(url, rawCookies)
                 }
             }
         }
