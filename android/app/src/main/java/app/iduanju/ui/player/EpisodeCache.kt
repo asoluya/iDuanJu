@@ -6,7 +6,6 @@ import app.iduanju.core.hongguo.HGResolvedVideo
 import app.iduanju.core.hongguo.HGStream
 import app.iduanju.core.hongguo.HGStreamKind
 import app.iduanju.core.hongguo.HGSubtitle
-import app.iduanju.core.tvbox.TVBoxId
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -31,11 +30,9 @@ import java.util.concurrent.ConcurrentHashMap
 data class Playable(
     val uri: String, val quality: String?, val codec: String, val encrypted: Boolean, val hls: Boolean = false,
     val headers: Map<String, String> = emptyMap(), val note: String? = null,
-    val kind: MediaKind? = null, val subtitles: List<HGSubtitle> = emptyList(), val live: Boolean = false,
+    val kind: MediaKind? = null, val subtitles: List<HGSubtitle> = emptyList(),
     /** [kind] came from the response, not from the address. */
     val sniffed: Boolean = false,
-    /** May lead into the local network. */
-    val lan: Boolean = true,
 )
 
 /**
@@ -73,7 +70,7 @@ object EpisodeCache {
     /** Where the app's own playlists and decrypted episodes live. */
     val folder: String by lazy { dir().canonicalPath + File.separator }
     private fun dir(): File = File(IdjApp.instance.cacheDir, "hg-play").apply { mkdirs() }
-    /** TVBox ids may be whole addresses: long ones keep a readable head and a hash, so names stay short and distinct. */
+    /** Ids may be whole addresses: long ones keep a readable head and a hash, so names stay short and distinct. */
     private fun safeName(vid: String) = vid.replace(Regex("[^A-Za-z0-9_-]"), "_").let { if (it.length <= 80) it else it.take(47) + "-" + md5(vid) }
     private fun safePart(s: String?) = s.orEmpty().replace(Regex("[^A-Za-z0-9_-]"), "").take(24).ifEmpty { "q" }
     internal fun md5(s: String): String = java.security.MessageDigest.getInstance("MD5").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
@@ -141,7 +138,7 @@ object EpisodeCache {
         val k = key(ep)
         if (force) resolved.remove(k) else peekResolved(ep)?.let { return@synchronized CompletableDeferred(it) }
         resolving[k]?.task?.takeIf { it.isActive } ?: scope.async(start = CoroutineStart.LAZY) {
-            val r = if (TVBoxId.isTVBox(ep.vid)) runInterruptible { app.iduanju.data.Catalog.resolve(ep) } else app.iduanju.data.Catalog.resolve(ep)
+            val r = app.iduanju.data.Catalog.resolve(ep)
             r.also { if (it.streams.isNotEmpty()) resolved[k] = Stamped(it) }
         }.also { task ->
             val entry = Resolving(ep.vid, task)
@@ -151,27 +148,23 @@ object EpisodeCache {
         }
     }
 
-    /** TVBox resolving occupies the site's one thread or a hidden page: what nobody is going to play any more ends at once. */
-    fun abandon(keep: String?) { resolving.values.filter { it.vid != keep && TVBoxId.isTVBox(it.vid) }.forEach { it.task.cancel() } }
-
-    /** [live] streams are always played from their own address: a rewritten playlist would be a snapshot. */
-    suspend fun open(vid: String, s: HGStream, live: Boolean = false, forceSniff: Boolean = false, onStatus: (String) -> Unit = {}): Playable = withContext(Dispatchers.IO) {
+    suspend fun open(vid: String, s: HGStream, forceSniff: Boolean = false, onStatus: (String) -> Unit = {}): Playable = withContext(Dispatchers.IO) {
         if (s.key.isNotEmpty()) return@withContext openCenc(vid, s)
         var kind = if (forceSniff) null else MediaKinds.guess(s.url, s.format, s.kind)
         val sniffed = kind == null
-        if (kind == null) kind = try { runInterruptible { MediaKinds.sniff(s.url, s.headers, s.lan, if (live) 3_000 else 4_000) } } catch (e: CancellationException) { throw e } catch (e: Exception) {
+        if (kind == null) kind = try { runInterruptible { MediaKinds.sniff(s.url, s.headers, 4_000) } } catch (e: CancellationException) { throw e } catch (e: Exception) {
             android.util.Log.i("IDJ", "sniff failed: ${e.javaClass.simpleName}"); MediaKind.Progressive
         }
-        if (kind == MediaKind.Hls && !live) {
+        if (kind == MediaKind.Hls) {
             onStatus("解析播放列表…")
             localPlaylist(vid, s)?.let { return@withContext it.copy(sniffed = sniffed) }
         }
-        Playable(s.url, s.quality, s.codec, false, hls = kind == MediaKind.Hls, headers = s.headers, kind = kind, subtitles = s.subtitles, live = live, sniffed = sniffed, lan = s.lan)
+        Playable(s.url, s.quality, s.codec, false, hls = kind == MediaKind.Hls, headers = s.headers, kind = kind, subtitles = s.subtitles, sniffed = sniffed)
     }
 
     /**
      * iOS serves the ad-stripped playlist from its loopback proxy; here it is written to a local file. Null when there
-     * is nothing to strip or the playlist must stay as it is (live, separate audio renditions): play the address itself.
+     * is nothing to strip or the playlist must stay as it is (separate audio renditions): play the address itself.
      */
     private fun localPlaylist(vid: String, s: HGStream): Playable? {
         if (!app.iduanju.core.hls.HLSAdFilter.enabled) return null
@@ -179,7 +172,7 @@ object EpisodeCache {
         var renditions = false
         val prep = try {
             app.iduanju.core.hls.HLSLocal.prepare(s.url) { u ->
-                PlayerHttp.quick(s.lan, 5_000).newCall(Request.Builder().url(u).apply { headers.forEach { (k, v) -> header(k, v) } }.build()).execute().use { resp ->
+                PlayerHttp.quick(5_000).newCall(Request.Builder().url(u).apply { headers.forEach { (k, v) -> header(k, v) } }.build()).execute().use { resp ->
                     if (!resp.isSuccessful) throw java.io.IOException("播放列表 HTTP ${resp.code}")
                     PlayerHttp.playlist(resp).also { if (Regex("#EXT-X-MEDIA:[^\\n]*TYPE=AUDIO[^\\n]*URI=").containsMatchIn(it)) renditions = true }
                 }
@@ -191,7 +184,7 @@ object EpisodeCache {
         val f = File(dir(), safeName(vid) + "-" + md5(s.url).take(8) + ".m3u8")
         f.writeText(text)
         val note = if (prep.removed > 0) "已去广告 ${prep.removed} 段 · ${prep.removedSeconds.toInt()}s" else null
-        return Playable(f.absolutePath, s.quality, s.codec, false, hls = true, headers = s.headers, note = note, kind = MediaKind.Hls, subtitles = s.subtitles, lan = s.lan)
+        return Playable(f.absolutePath, s.quality, s.codec, false, hls = true, headers = s.headers, note = note, kind = MediaKind.Hls, subtitles = s.subtitles)
     }
 
     private fun openCenc(vid: String, s: HGStream): Playable {
@@ -211,7 +204,7 @@ object EpisodeCache {
     }
 
     /** Remembers what the player opened, so coming back to the episode is instant. */
-    fun remember(vid: String, p: Playable) { if (!p.live) ready[vid] = Stamped(p) }
+    fun remember(vid: String, p: Playable) { ready[vid] = Stamped(p) }
     fun forget(ep: HGEpisode) { ready.remove(ep.vid); resolved.remove(key(ep)) }
 
     /** A cached file that does not play: download it again next time. */
@@ -246,7 +239,7 @@ object EpisodeCache {
         val p = try { get(ep, prefer).await() } catch (e: CancellationException) { throw e } catch (e: Exception) { return }
         val ctx = IdjApp.instance
         when {
-            p.live || p.uri.startsWith("$CENC_SCHEME://") -> Unit
+            p.uri.startsWith("$CENC_SCHEME://") -> Unit
             p.hls && p.uri.startsWith("/") -> firstSegments(p.uri).forEach { MediaHeadCache.warm(ctx, it, p.headers, 0L) }
             p.kind == MediaKind.Progressive -> MediaHeadCache.warm(ctx, p.uri, p.headers, WARM_BYTES)
         }

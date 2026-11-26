@@ -35,8 +35,6 @@ import app.iduanju.core.cms.MacCMS
 import app.iduanju.core.hongguo.HGNet
 import app.iduanju.core.hongguo.HGStreamKind
 import app.iduanju.core.hongguo.HGSubtitle
-import app.iduanju.core.tvbox.TVBoxNet
-import app.iduanju.tvbox.TVBoxMediaGuard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runInterruptible
 import okhttp3.ConnectionPool
@@ -55,14 +53,9 @@ internal object PlayerHttp {
         .retryOnConnectionFailure(true)
         .connectTimeout(8, TimeUnit.SECONDS).readTimeout(12, TimeUnit.SECONDS).build()
     private val system = direct.newBuilder().proxy(null).build()
-    private fun guarded(c: OkHttpClient) = c.newBuilder().dns(TVBoxMediaGuard).addNetworkInterceptor(TVBoxMediaGuard).build()
-    private val guardedDirect by lazy { guarded(direct) }
-    private val guardedSystem by lazy { guarded(system) }
     val client: OkHttpClient get() = if (HGNet.playerUsesSystemProxy) system else direct
-    /** [lan] = false: never into the local network (TVBox configs without that permission). */
-    fun client(lan: Boolean): OkHttpClient = if (lan) client else if (HGNet.playerUsesSystemProxy) guardedSystem else guardedDirect
     /** Same pool with a short overall limit (sniffing). */
-    fun quick(lan: Boolean, ms: Long): OkHttpClient = client(lan).newBuilder().callTimeout(ms, TimeUnit.MILLISECONDS).build()
+    fun quick(ms: Long): OkHttpClient = client.newBuilder().callTimeout(ms, TimeUnit.MILLISECONDS).build()
 
     /**
      * A playlist and nothing else: many addresses only mention `m3u8`, and what answers may be the whole film or a stream that
@@ -71,7 +64,19 @@ internal object PlayerHttp {
     fun playlist(resp: Response): String {
         val start = resp.peekBody(64).string().trimStart('\uFEFF', ' ', '\r', '\n', '\t')
         if (!start.startsWith("#EXTM3U")) throw IOException("不是播放列表")
-        return String(TVBoxNet.capped(resp.body!!.byteStream(), MAX_PLAYLIST), Charsets.UTF_8)
+        return String(capped(resp.body!!.byteStream(), MAX_PLAYLIST), Charsets.UTF_8)
+    }
+
+    /** Reads at most [cap] bytes of [s]. */
+    private fun capped(s: java.io.InputStream, cap: Int): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        val buf = ByteArray(32 * 1024)
+        while (out.size() < cap) {
+            val n = s.read(buf, 0, minOf(buf.size, cap - out.size()))
+            if (n < 0) break
+            out.write(buf, 0, n)
+        }
+        return out.toByteArray()
     }
 
     private const val MAX_PLAYLIST = 8 shl 20
@@ -135,8 +140,8 @@ internal object MediaKinds {
     }
 
     /** One small request within [ms]: content type, final address after redirects, then the first bytes. */
-    fun sniff(url: String, headers: Map<String, String>, lan: Boolean, ms: Long): MediaKind {
-        val client = PlayerHttp.quick(lan, ms)
+    fun sniff(url: String, headers: Map<String, String>, ms: Long): MediaKind {
+        val client = PlayerHttp.quick(ms)
         val until = System.nanoTime() + ms * 1_000_000
         fun request(ranged: Boolean) = Request.Builder().url(url)
             .apply { if (ranged) header("Range", "bytes=0-1023") }
@@ -197,23 +202,23 @@ internal object MediaHeadCache {
 }
 
 internal object PlayerSources {
-    fun http(headers: Map<String, String>, lan: Boolean = true): DataSource.Factory {
+    fun http(headers: Map<String, String>): DataSource.Factory {
         val safe = PlayerHttp.safe(headers)
         // OkHttp (HTTP/2) like iOS URLSession: some CDNs behind Cloudflare 403 HttpURLConnection (HTTP/1.1 only).
-        return OkHttpDataSource.Factory(PlayerHttp.client(lan))
+        return OkHttpDataSource.Factory(PlayerHttp.client)
             .setUserAgent(safe.entries.firstOrNull { it.key.equals("user-agent", true) }?.value ?: MacCMS.UA)
             .setDefaultRequestProperties(safe.filterKeys { !it.equals("user-agent", true) })
     }
 
-    private fun data(context: Context, headers: Map<String, String>, live: Boolean, lan: Boolean): DataSource.Factory {
-        val http = http(headers, lan)
+    private fun data(context: Context, headers: Map<String, String>): DataSource.Factory {
+        val http = http(headers)
         val local = DefaultDataSource.Factory(context, http)
         return DataSource.Factory {
             RoutingDataSource(
-                files = { lan || runCatching { File(it.path.orEmpty()).canonicalPath.startsWith(EpisodeCache.folder) }.getOrDefault(false) },
+                files = { runCatching { File(it.path.orEmpty()).canonicalPath.startsWith(EpisodeCache.folder) }.getOrDefault(false) },
                 local = { local.createDataSource() },
                 http = {
-                    val c = if (live) null else MediaHeadCache.get()
+                    val c = MediaHeadCache.get()
                     if (c == null) http.createDataSource()
                     else CacheDataSource.Factory().setCache(c).setCacheWriteDataSinkFactory(null).setUpstreamDataSourceFactory(http)
                         .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR).createDataSource()
@@ -240,7 +245,7 @@ internal object PlayerSources {
         val extractors = DefaultExtractorsFactory()
             .setConstantBitrateSeekingEnabled(true)
             .setTsExtractorFlags(DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES)
-        return DefaultMediaSourceFactory(data(context, p.headers, p.live, p.lan), extractors)
+        return DefaultMediaSourceFactory(data(context, p.headers), extractors)
             .setLoadErrorHandlingPolicy(errorPolicy).createMediaSource(item)
     }
 

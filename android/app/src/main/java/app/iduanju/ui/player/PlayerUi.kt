@@ -14,7 +14,7 @@ import app.iduanju.ui.UiEvidence
 import app.iduanju.ui.components.LayoutMetrics
 
 internal enum class PlayerPanel(val id: String) {
-    Episodes("episodes"), Speed("speed"), Quality("quality"), Tracks("audio"), More("more"), Danmaku("danmaku"), Channels("channels"), Guide("guide");
+    Episodes("episodes"), Speed("speed"), Quality("quality"), Tracks("audio"), More("more"), Danmaku("danmaku");
 
     companion object { fun of(id: String?) = entries.firstOrNull { it.id == id } }
 }
@@ -32,8 +32,6 @@ internal class PlayerUi(private val ctx: Context) {
         private set
     var padDrawerOpen by mutableStateOf(true)
     var showTech by mutableStateOf(false)
-    /** Landscape live: the channel drawer on the right edge. */
-    var channelDrawer by mutableStateOf(false)
     /** null = follow the sensor, true / false = chosen by hand. */
     var manualLandscape by mutableStateOf<Boolean?>(null)
     /** Vertical offset (px) of the video while the centre zone is dragged; read in draw / layout only. */

@@ -161,8 +161,7 @@ fun DetailScreen(seriesId: String, onBack: () -> Unit, onPlay: (String, Int) -> 
         lineIndex = i
         d?.lines?.getOrNull(i)?.let { lib.setPreferredLine(seriesId, it.id) }
     }
-    // The episode 播放 will open is resolved while the page is read, so playback starts without a round trip. Only the
-    // catalogue source: TVBox resolving may run scripts or a hidden page.
+    // The episode 播放 will open is resolved while the page is read, so playback starts without a round trip.
     LaunchedEffect(eps, resume?.episodeNumber) {
         if (eps.isEmpty() || !seriesId.all { it.isDigit() } || !IdjApp.instance.settings.prefetchEnabled) return@LaunchedEffect
         kotlinx.coroutines.delay(1_200)
@@ -177,15 +176,9 @@ fun DetailScreen(seriesId: String, onBack: () -> Unit, onPlay: (String, Int) -> 
     var actionsBottom by remember { mutableFloatStateOf(Float.MAX_VALUE) }
     val actionsThresholdPx = with(density) { 100.dp.toPx() }
     val actionsOut by remember(actionsThresholdPx) { derivedStateOf { actionsBottom < actionsThresholdPx } }
-    val live = d?.isLive == true
-    val startEp = (if (live && resume != null) eps.getOrNull(app.iduanju.core.tvbox.LiveKey(resume.episodeNumber, resume.episodeGroup, resume.episodeTitle).find(eps))?.ep else resume?.episodeNumber) ?: eps.firstOrNull()?.ep ?: 1
-    // The player loads the list again: a channel goes there by name.
-    val play: (String, Int) -> Unit = { s, ep ->
-        if (live) eps.firstOrNull { it.ep == ep }?.let { app.iduanju.data.Catalog.rememberChannel(s, app.iduanju.core.tvbox.LiveKey(ep, it.page.orEmpty(), it.title)) }
-        onPlay(s, ep)
-    }
+    val startEp = resume?.episodeNumber ?: eps.firstOrNull()?.ep ?: 1
+    val play: (String, Int) -> Unit = { s, ep -> onPlay(s, ep) }
     val playTitle = when {
-        live -> "观看直播"
         resume == null -> "开始播放"
         eps.size <= 1 -> "继续播放 " + clockText(resume.seconds)
         else -> "继续第 ${resume.episodeNumber} 集"
@@ -681,8 +674,6 @@ private fun DetailBody(
 private class EpisodePickerState {
     var group by mutableIntStateOf(0)
     var reversed by mutableStateOf(false)
-    /** Live lists: the selected channel group. */
-    var channelGroup by mutableStateOf<String?>(null)
 }
 
 /** 线路 chips (multi-line titles) → 选集 header with 正序 / 倒序 → 30-episode groups → grid. */
@@ -700,7 +691,6 @@ private fun EpisodeSection(
     epCols: Int = 6,
     groupSize: Int = 30,
 ) {
-    if (d.isLive) { ChannelSection(eps, sid, resume, picker, onPlay, inset, epCols); return }
     if (d.lines.size > 1) {
         SectionHeader2("线路", "共 ${d.lines.size} 条", inset = inset, modifier = Modifier.padding(top = 22.dp))
         LazyRow(Modifier.padding(top = 12.dp), contentPadding = PaddingValues(horizontal = inset), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -732,22 +722,7 @@ private fun EpisodeSection(
     }
 }
 
-/** Live lists opened from 收藏 / 历史: groups and channels, straight into the player. */
-@Composable
-private fun ChannelSection(channels: List<HGEpisode>, sid: String, resume: app.iduanju.data.WatchProgress?, picker: EpisodePickerState, onPlay: (String, Int) -> Unit, inset: Dp, epCols: Int) {
-    val groups = remember(channels) { channels.mapNotNull { it.page?.takeIf { p -> p.isNotBlank() } }.distinct() }
-    val group = picker.channelGroup?.takeIf { it in groups } ?: resume?.let { channels.getOrNull(it.episodeIndex)?.page } ?: groups.firstOrNull()
-    SectionHeader2("频道", "共 ${channels.size} 个", inset = inset, modifier = Modifier.padding(top = 22.dp))
-    if (groups.size > 1) LazyRow(Modifier.padding(top = 12.dp), contentPadding = PaddingValues(horizontal = inset), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(groups, key = { it }) { name -> ToneChip(name, name == group, neutral = true, small = true) { picker.channelGroup = name } }
-    }
-    // A group can hold hundreds of channels; the player has the full, searchable list.
-    val shown = remember(channels, group) { channels.indices.filter { group == null || channels[it].page == group }.take(90) }
-    EpisodeRows(channels, shown, textColumns(epCols), resume?.episodeIndex, textual = true, modifier = Modifier.padding(horizontal = inset).padding(top = 12.dp)) { i -> onPlay(sid, channels[i].ep) }
-}
-
 private fun episodeCountText(d: HGSeriesDetail): String = when {
-    d.isLive -> "${d.episodes.size} 个频道"
     d.lines.size > 1 && d.episodes.size <= 1 -> "${d.lines.size} 条线路"
     else -> "全 ${maxOf(if (d.lines.size > 1) 0 else d.totalEps, d.episodes.size)} 集"
 }

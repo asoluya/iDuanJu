@@ -29,7 +29,7 @@ internal class NextDramaController(private val ctx: Context, private val session
     private val lib = IdjApp.instance.library
     internal var onSwitchSeries: (String) -> Unit = {}
 
-    val capable: Boolean get() = !session.queued && !session.fixture && !session.channelList && session.seriesId.isNotEmpty() && session.seriesId.all { it.isDigit() }
+    val capable: Boolean get() = !session.queued && !session.fixture && session.seriesId.isNotEmpty() && session.seriesId.all { it.isDigit() }
     var enabled by mutableStateOf(PlayerPrefs.getAutoContinueNextDrama(ctx))
         private set
     var pick by mutableStateOf<NextDramaPick?>(null)

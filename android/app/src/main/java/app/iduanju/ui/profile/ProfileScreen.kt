@@ -99,8 +99,6 @@ fun ProfileScreen(onOpenDetail: (String) -> Unit = {}) {
                 val n = ia.plugins.plugins.count { !it.adult || adult } + ia.cms.sites.count { !it.adult || adult }
                 LinkRow("插件", ProfileIcons.plugin, trailing = n.takeIf { it > 0 }?.let { "$it 个" }) { go("plugins") }
                 RowDivider()
-                LinkRow("TVBox 配置", ProfileIcons.sources, trailing = ia.tvbox.repos.size.takeIf { it > 0 }?.let { "$it 个" }) { go("tvbox/config") }
-                RowDivider()
                 LinkRow("片源管理", ProfileIcons.sources) { go("sources") }
             }
         }

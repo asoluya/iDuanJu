@@ -8,20 +8,15 @@ import app.iduanju.core.hongguo.HGSeriesDetail
 import app.iduanju.core.plugin.PluginException
 import app.iduanju.core.plugin.PluginVideo
 import app.iduanju.core.util.ProviderException
-import app.iduanju.core.tvbox.LiveKey
-import app.iduanju.core.tvbox.TVBoxId
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 
 /**
- * Routes a namespaced series id to its provider (红果 by default, "cms:<key>:<id>" → MacCMS, "plugin:<id>:…" → idj1 plugin,
- * "tvb:<uid>:<vod_id>" → TVBox site, "tvl:<uid>" → TVBox live list).
+ * Routes a namespaced series id to its provider (红果 by default, "cms:<key>:<id>" → MacCMS, "plugin:<id>:…" → idj1 plugin).
  */
 object Catalog {
     private const val DETAIL_TTL_MS = 5 * 60_000L
     private val previewHints = java.util.concurrent.ConcurrentHashMap<String, Pair<String, String>>()
-    private val channelHints = java.util.concurrent.ConcurrentHashMap<String, LiveKey>()
     private val detailCache = java.util.concurrent.ConcurrentHashMap<String, Pair<HGSeriesDetail, Long>>()
     private val detailLocks = java.util.concurrent.ConcurrentHashMap<String, Any>()
 
@@ -30,13 +25,6 @@ object Catalog {
             previewHints[sid] = title to cover
         }
     }
-
-    /** The live channel a tap means; the route only carries its number. */
-    fun rememberChannel(sid: String, key: LiveKey) { channelHints[sid] = key }
-
-    /** [number]'s channel: the one just tapped, else the one last watched under that number. */
-    fun channel(sid: String, number: Int): LiveKey = channelHints.remove(sid)?.takeIf { it.number == number }
-        ?: IdjApp.instance.library.progress(sid)?.takeIf { it.episodeNumber == number }?.let { LiveKey(number, it.episodeGroup, it.episodeTitle) } ?: LiveKey(number, "", "")
 
     fun peekCover(sid: String): String {
         previewHints[sid]?.second?.takeIf { it.isNotEmpty() }?.let { return it }
@@ -55,10 +43,7 @@ object Catalog {
     }
 
     fun isCMS(sid: String) = sid.startsWith("cms:")
-    fun isTVBox(sid: String) = TVBoxId.isVod(sid)
-    /** A live channel list: no timeline, no progress, never cached. */
-    fun isLive(sid: String) = TVBoxId.isLive(sid)
-    fun isHongguo(sid: String) = !TVBoxId.isTVBox(sid) && !isCMS(sid) && !PluginVideo.isPlugin(sid) &&
+    fun isHongguo(sid: String) = !isCMS(sid) && !PluginVideo.isPlugin(sid) &&
         !app.iduanju.core.huangguo.HuangguoClient.isHuangguo(sid)
     private fun cmsSite(sid: String) = MacCMS.parseSid(sid)?.first?.let { IdjApp.instance.cms.site(it) }
         ?: throw ProviderException.invalid("采集站已删除")
@@ -87,24 +72,19 @@ object Catalog {
                 return@synchronized enriched
             }
             val loaded = when {
-                TVBoxId.isTVBox(sid) -> IdjApp.instance.tvbox.detail(sid).also { if (it.title.isEmpty()) it.title = peekTitle(sid); if (it.cover.isEmpty()) it.cover = peekCover(sid) }
                 isCMS(sid) -> MacCMS.detail(cmsSite(sid), sid)
                 PluginVideo.isPlugin(sid) -> friendly { plugin(sid).detail(sid) }
                 isHongguo(sid) -> IdjApp.instance.hongguo.detail(sid, web)
                 else -> throw ProviderException.invalid("请先在「我的 → 插件」导入对应片源插件")
             }
-            if (loaded.episodes.isNotEmpty() && !isLive(sid)) detailCache[sid] = loaded to System.currentTimeMillis()
+            if (loaded.episodes.isNotEmpty()) detailCache[sid] = loaded to System.currentTimeMillis()
             rememberPreview(sid, loaded.title, loaded.cover)
             loaded
         }
     }
 
-    /**
-     * [detail] off the main thread. A TVBox lookup ends together with its caller: the site may have only one thread, and what
-     * the user opens next must not wait for what was left.
-     */
-    suspend fun load(sid: String): HGSeriesDetail =
-        if (TVBoxId.isTVBox(sid)) runInterruptible(Dispatchers.IO) { detail(sid, web = false) } else withContext(Dispatchers.IO) { detail(sid, web = false) }
+    /** [detail] off the main thread. */
+    suspend fun load(sid: String): HGSeriesDetail = withContext(Dispatchers.IO) { detail(sid, web = false) }
 
     /** Second-pass official web enrichment for Hongguo (cast / tags / rating), mirroring iOS Catalog.enriched. */
     fun enrich(sid: String, base: HGSeriesDetail): HGSeriesDetail? {
@@ -118,7 +98,6 @@ object Catalog {
     }
 
     fun resolve(ep: HGEpisode): HGResolvedVideo = when {
-        TVBoxId.isTVBox(ep.vid) -> IdjApp.instance.tvbox.resolve(ep)
         isCMS(ep.vid) -> MacCMS.resolve(cmsSite(ep.vid), ep)
         PluginVideo.isPlugin(ep.vid) -> friendly { plugin(ep.vid).resolve(ep) }
         isHongguo(ep.vid) -> IdjApp.instance.hongguo.resolve(ep.vid)

@@ -92,11 +92,7 @@ internal fun TopBar(
     Column(modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = dims.pad).padding(top = if (dims.landscape) 12.dp else 6.dp).graphicsLayer { this.alpha = alpha() }) {
         Row(Modifier.fillMaxWidth().heightIn(min = dims.button), verticalAlignment = Alignment.CenterVertically) {
             CircleBtn(Icons.AutoMirrored.Filled.ArrowBackIos, "返回", enabled, dims.button, dims.buttonIcon, onClick = onBack)
-            if (session.channelList) {
-                Spacer(Modifier.width(12.dp))
-                LiveHeading(session, dims, Modifier.weight(1f))
-                Spacer(Modifier.width(12.dp))
-            } else if (dims.wide) {
+            if (dims.wide) {
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(d?.title.orEmpty(), color = Color.White, fontSize = if (dims.tablet) 17.sp else 16.sp, fontWeight = FontWeight.Bold,
@@ -115,53 +111,19 @@ internal fun TopBar(
             Row(horizontalArrangement = Arrangement.spacedBy(if (dims.tablet) 10.dp else 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 CircleBtn(Icons.Filled.PictureInPictureAlt, "画中画", enabled, dims.button, dims.buttonIcon, onClick = onPip)
                 if (!session.queued) {
-                    if (session.channelList) {
-                        val tv = IdjApp.instance.tvbox
-                        val name = session.episode?.title.orEmpty()
-                        val fav = tv.isFavorite(name)
-                        CircleBtn(if (fav) Icons.Filled.Star else Icons.Filled.StarBorder, if (fav) "取消收藏频道" else "收藏频道", enabled && name.isNotEmpty(), dims.button, dims.buttonIcon,
-                            tint = if (fav) pc.accent else Color.White) {
-                            tv.toggleFavorite(name)
-                            session.hint = if (fav) "已取消收藏" else "已收藏频道"
-                        }
-                    } else {
-                        val fav = lib.isFavorite(session.seriesId)
-                        CircleBtn(if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder, if (fav) "取消收藏" else "收藏", enabled, dims.button, dims.buttonIcon,
-                            tint = if (fav) pc.accent else Color.White) { d?.let { lib.toggleFavorite(session.seriesId, it.title, it.cover) } }
-                    }
+                    val fav = lib.isFavorite(session.seriesId)
+                    CircleBtn(if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder, if (fav) "取消收藏" else "收藏", enabled, dims.button, dims.buttonIcon,
+                        tint = if (fav) pc.accent else Color.White) { d?.let { lib.toggleFavorite(session.seriesId, it.title, it.cover) } }
                 }
                 if (padSplit) CircleBtn(Icons.Filled.GridView, if (ui.padDrawerOpen) "收起选集" else "展开选集", enabled, dims.button, dims.buttonIcon,
                     tint = if (ui.padDrawerOpen) pc.accent else Color.White) { ui.padDrawerOpen = !ui.padDrawerOpen }
                 CircleBtn(Icons.Filled.MoreHoriz, "更多", enabled, dims.button, dims.buttonIcon) { ui.toggle(PlayerPanel.More) }
             }
         }
-        if (!dims.wide && !session.channelList) Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
+        if (!dims.wide) Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
             StatusBadges(session.tags, enhance.enhanceOn, enhance.hdrOn, nativeRange, enabled) { ui.toggle(PlayerPanel.More) }
         }
         if (ui.showTech) TechStrip(session.tags, Modifier.align(Alignment.CenterHorizontally).padding(top = 6.dp))
-    }
-}
-
-/** −10 s · play / pause · +10 s (live: previous channel · play / pause · next channel). */
-@Composable
-internal fun CenterTransport(session: PlayerSession, dims: PlayerDimens, visible: Boolean, backdrop: Backdrop?, modifier: Modifier) {
-    AnimatedVisibility(visible, modifier, enter = Motion.modalEnter, exit = Motion.modalExit) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(if (dims.tablet) 84.dp else 52.dp)) {
-            if (session.live) CircleBtn(Icons.Filled.SkipPrevious, "上一个频道", session.hasPrev, dims.side, dims.side * 0.52f) { session.prev() }
-            else CircleBtn(Icons.Filled.Replay10, "后退10秒", true, dims.side, dims.side * 0.52f) { session.seekBy(-10_000L) }
-            Box(
-                Modifier.size(dims.main)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.46f))
-                    .border(0.6.dp, Color.White.copy(alpha = 0.10f), CircleShape)
-                    .pressClick(0.92f, label = if (session.playing) "暂停" else "播放") { session.togglePlay() },
-                contentAlignment = Alignment.Center,
-            ) {
-                Crossfade(session.playing, label = "pp") { p -> Icon(if (p) Icons.Filled.Pause else Icons.Filled.PlayArrow, null, tint = Color.White, modifier = Modifier.size(dims.main * 0.46f)) }
-            }
-            if (session.live) CircleBtn(Icons.Filled.SkipNext, "下一个频道", session.hasNext, dims.side, dims.side * 0.52f) { session.next() }
-            else CircleBtn(Icons.Filled.Forward10, "前进10秒", true, dims.side, dims.side * 0.52f) { session.seekBy(10_000L) }
-        }
     }
 }
 
@@ -174,22 +136,18 @@ internal fun BottomConsole(
     val d = session.detail
     Column(modifier.navigationBarsPadding().padding(horizontal = dims.pad).padding(bottom = if (dims.wide) 16.dp else 6.dp)
         .then(if (dims.wide) Modifier.widthIn(max = 860.dp) else Modifier).fillMaxWidth().graphicsLayer { this.alpha = alpha() }) {
-        if (d != null && !dims.wide && !session.channelList) {
+        if (d != null && !dims.wide) {
             MetaRow(session, ui, label, enabled)
             Spacer(Modifier.height(6.dp))
             Text(d.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 21.sp, lineHeight = 27.sp, maxLines = 1,
                 overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 6.dp), style = titleShadow)
             Spacer(Modifier.height(8.dp))
         }
-        if (session.live && !dims.wide) LiveProgramLine(session, Modifier.padding(horizontal = 6.dp).padding(bottom = 10.dp))
         Column(Modifier.fillMaxWidth()
             .then(if (dims.wide) Modifier.glassSurface(RoundedCornerShape(26.dp), backdrop = backdrop, dark = true, base = PlayerGlass, shadowRadius = 16.dp, fallbackAlpha = 0.44f)
                 .padding(horizontal = 16.dp, vertical = 10.dp) else Modifier.padding(horizontal = 6.dp))
             // swallow taps on the console background so they never toggle the HUD underneath
             .pointerInput(Unit) { detectTapGestures { } }) {
-            if (session.live) {
-                LiveControls(session, ui, dims, enabled, canToggleOrientation, onOrientation)
-            } else {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         Modifier.size(36.dp).clip(CircleShape)
@@ -210,8 +168,7 @@ internal fun BottomConsole(
                         HudIcon(if (dims.landscape) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen, if (dims.landscape) "退出全屏" else "横屏全屏", onOrientation)
                     }
                 }
-                if (session.channelList) ReplayControls(session, ui, dims, enabled) else VodControls(session, ui, dims, enabled)
-            }
+                VodControls(session, ui, dims, enabled)
         }
     }
 }
@@ -291,7 +248,7 @@ internal fun BoxScope.PlayerStatus(session: PlayerSession, backdrop: Backdrop?) 
     val text = when {
         session.error != null -> ""
         session.status.isNotEmpty() -> session.status
-        waiting && slow -> if (!session.firstFrame) (if (session.live) "正在连接…" else "正在加载视频…") else "正在缓冲…"
+        waiting && slow -> if (!session.firstFrame) "正在加载视频…" else "正在缓冲…"
         else -> ""
     }
     AnimatedVisibility(text.isNotEmpty(), Modifier.align(Alignment.Center), enter = Motion.modalEnter, exit = Motion.modalExit) {

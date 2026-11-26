@@ -138,7 +138,7 @@ internal class EnhanceState(private val ctx: Context, private val session: Playe
         syncWindowAndFallback(activity, textureView, effect, session.nativeHdr)
     }
 
-    fun install() = installer.install(wanted, session.live)
+    fun install() = installer.install(wanted)
 
     fun onFailure(): Boolean {
         if (failed) return false
@@ -150,7 +150,7 @@ internal class EnhanceState(private val ctx: Context, private val session: Playe
         effect.sdrToHdr = false
         PlayerPrefs.setEnhanceLevel(ctx, 0)
         PlayerPrefs.setSdrToHdr(ctx, false)
-        installer.install(false, session.live)
+        installer.install(false)
         return true
     }
 

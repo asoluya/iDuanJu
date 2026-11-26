@@ -289,9 +289,8 @@ fun DanmakuOverlay(
     laneTop: Dp,
     bottomLimit: Dp,
     previewActive: Boolean = false,
-    /** Comments address delivered by the stream itself (TVBox); wins over the official 红果 comments. */
+    /** Comments address delivered by the stream itself; wins over the official 红果 comments. */
     externalUrl: String? = null,
-    externalLan: Boolean = true,
     playing: Boolean = true,
     onStatus: (String) -> Unit,
 ) {
@@ -307,7 +306,7 @@ fun DanmakuOverlay(
             return@LaunchedEffect
         }
         onStatus("弹幕加载中…")
-        val r = withContext(Dispatchers.IO) { if (externalUrl != null) ExternalDanmaku.fetch(externalUrl, externalLan) else DanmakuPrefs.client.fetch(target!!.first, target.second) }
+        val r = withContext(Dispatchers.IO) { if (externalUrl != null) ExternalDanmaku.fetch(externalUrl) else DanmakuPrefs.client.fetch(target!!.first, target.second) }
         raw = r.items
         onStatus(if (r.items.isEmpty()) r.notice else r.notice.ifEmpty { "本集 ${r.items.size} 条" })
     }

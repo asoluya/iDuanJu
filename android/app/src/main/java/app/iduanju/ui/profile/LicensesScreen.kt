@@ -23,11 +23,7 @@ fun LicensesScreen(onBack: () -> Unit) {
         license("Haze · AndroidLiquidGlass", "Apache License 2.0 · Chris Banes · Kyant", "毛玻璃与液态玻璃材质。")
         license("Coil", "Apache License 2.0", "封面与漫画图片加载。")
         license("Kotlin · kotlinx.coroutines", "Apache License 2.0 · JetBrains", null)
-        license("QuickJS", "MIT License", "插件与 TVBox 脚本运行时（经 QuickJS 包装库），沙箱封装为本应用代码。")
-        license("crypto-js 4.2.0", "MIT License · Jeff Mott, Evan Vosberg", "TVBox JS 站点使用的加密库（随 shared/tvbox/js/lib 分发，保留原许可文本），来源 github.com/brix/crypto-js。")
-        license("Gson 2.11.0", "Apache License 2.0 · Google Inc.", "TVBox JAR 站点的宿主接口，未修改；来源 github.com/google/gson。")
-        if (app.iduanju.tvbox.runtime.PyRuntime.INCLUDED) license("Chaquopy 16.1.0 · CPython 3.11", "MIT License · PSF License",
-            "TVBox Python 站点运行时；随附 requests、urllib3、certifi、idna、charset-normalizer、lxml、pycryptodome、pyquery、cssselect、beautifulsoup4、soupsieve，许可见仓库 THIRD_PARTY_NOTICES.md。")
+        license("QuickJS", "MIT License", "插件脚本运行时（经 QuickJS 包装库），沙箱封装为本应用代码。")
         license("Rhino 1.7.15", "Mozilla Public License 2.0", "小说书源脚本引擎，未修改；来源 github.com/mozilla/rhino，许可随安装包 assets/licenses 分发。")
         license("hongguo-open-player", "GPL-3.0-only · zfdang (commit 3f687c5)",
             "红果播放签名（Argus 551 / Ladon）参考其 src/server/native/argus.js 移植，与 iOS 实现逐字节一致。")

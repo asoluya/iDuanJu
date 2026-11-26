@@ -2,7 +2,6 @@ package app.iduanju.ui.player
 
 import app.iduanju.core.hongguo.HGDanmaku
 import app.iduanju.core.hongguo.HGDanmakuResult
-import app.iduanju.core.tvbox.LenientJson
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
@@ -11,7 +10,7 @@ import java.io.InputStream
 import java.util.zip.Inflater
 import java.util.zip.InflaterInputStream
 
-/** Comments delivered with a TVBox stream: Bilibili XML (`<d p="time,mode,size,color,…">`) or DPlayer-style JSON. */
+/** Comments delivered with a stream: Bilibili XML (`<d p="time,mode,size,color,…">`) or DPlayer-style JSON. */
 internal object ExternalDanmaku {
     private const val MAX_BYTES = 8 shl 20
     private const val MAX_ITEMS = 6_000
@@ -19,9 +18,9 @@ internal object ExternalDanmaku {
     private const val MAX_TIME = 360_000.0
     private val node = Regex("""<d\s+[^>]*?p="([^"]*)"[^>]*>(.*?)</d>""", RegexOption.DOT_MATCHES_ALL)
 
-    /** Blocking; call off the main thread. [lan]: may the address lead into the local network. */
-    fun fetch(url: String, lan: Boolean = true): HGDanmakuResult = try {
-        val text = PlayerHttp.client(lan).newCall(Request.Builder().url(url).header("User-Agent", app.iduanju.core.cms.MacCMS.UA).build()).execute().use { resp ->
+    /** Blocking; call off the main thread. */
+    fun fetch(url: String): HGDanmakuResult = try {
+        val text = PlayerHttp.client.newCall(Request.Builder().url(url).header("User-Agent", app.iduanju.core.cms.MacCMS.UA).build()).execute().use { resp ->
             if (!resp.isSuccessful) return HGDanmakuResult(emptyList(), error = "弹幕 HTTP ${resp.code}")
             val body = resp.body ?: return HGDanmakuResult(emptyList())
             // OkHttp only undoes gzip; the Bilibili endpoint answers with a raw deflate stream.
@@ -57,7 +56,7 @@ internal object ExternalDanmaku {
     }.toList()
 
     private fun json(t: String): List<HGDanmaku> = runCatching {
-        val root = LenientJson.parse(t)
+        val root: Any = if (t.startsWith("[")) JSONArray(t) else JSONObject(t)
         val list: JSONArray = when (root) {
             is JSONArray -> root
             is JSONObject -> listOf("danmuku", "danmaku", "data", "comments", "list").firstNotNullOfOrNull { k ->

@@ -11,7 +11,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -61,8 +60,8 @@ import app.iduanju.ui.theme.IdjThemeColors
 import kotlinx.coroutines.flow.first
 import kotlin.math.roundToInt
 
-/** Dynamic root pages: 首页 + 我的, plus TVBox only after a TVBox config is imported. */
-private val RootRoutes = setOf("home", "tvbox", "profile")
+/** Root pages: 首页 + 我的. */
+private val RootRoutes = setOf("home", "profile")
 
 /** Lets deep rows (继续观看 · 全部) open a route without threading callbacks through every page. */
 val LocalNavigate = androidx.compose.runtime.staticCompositionLocalOf<(String) -> Unit> { {} }
@@ -80,8 +79,7 @@ fun RootScreen(initialRoute: String? = null) {
         kotlinx.coroutines.delay(1_500)
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { app.iduanju.ui.player.PlayerWarmup.run() }
     }
-    val hasTvbox = app.iduanju.IdjApp.instance.tvbox.repos.isNotEmpty()
-    val tabRoutes = remember(hasTvbox) { if (hasTvbox) listOf("home", "tvbox", "profile") else listOf("home", "profile") }
+    val tabRoutes = remember { listOf("home", "profile") }
     var tab by remember { mutableIntStateOf(0) }
     val back = nav.currentBackStackEntryAsState().value
     val route = back?.destination?.route ?: "home"
@@ -141,10 +139,9 @@ fun RootScreen(initialRoute: String? = null) {
                 }
             }
         }
-        val navItems = remember(hasTvbox) {
+        val navItems = remember {
             buildList<Pair<String, @Composable (Boolean) -> Unit>> {
                 add("首页" to { on -> Icon(Icons.Filled.Home, null, Modifier.size(20.dp), tint = if (on) IdjThemeColors.text else dockLabel()) })
-                if (hasTvbox) add("TVBox" to { on -> Icon(Icons.Filled.LiveTv, null, Modifier.size(20.dp), tint = if (on) IdjThemeColors.text else dockLabel()) })
                 add("我的" to { on -> Icon(Icons.Filled.Person, null, Modifier.size(20.dp), tint = if (on) IdjThemeColors.text else dockLabel()) })
             }
         }
@@ -215,14 +212,6 @@ fun RootScreen(initialRoute: String? = null) {
                                 onOpenManga = { nav.navigate("manga/" + android.net.Uri.encode(it)) },
                             )
                         }
-                        composable("tvbox") {
-                            app.iduanju.tvbox.TVBoxHubScreen(
-                                onOpenConfig = { nav.navigate("tvbox/config") },
-                                onOpenDetail = { sid -> nav.navigate(Routes.detail(sid)) },
-                                onPlay = { sid, ep -> nav.navigate(Routes.player(sid, ep)) },
-                            )
-                        }
-                        composable("tvbox/config") { app.iduanju.tvbox.TVBoxConfigScreen(onBack = { nav.popBackStack() }) }
                         composable("search") {
                             SearchScreen(
                                 onOpenDetail = { nav.navigate(Routes.detail(it)) },
@@ -323,7 +312,7 @@ fun RootScreen(initialRoute: String? = null) {
 private val DockPillShape = RoundedCornerShape(percent = 50)
 
 /**
- * Symmetrical floating bottom Liquid Glass dock (`首页 · TVBox · 找剧 · 我的`)
+ * Symmetrical floating bottom Liquid Glass dock (`首页 · 我的`)
  * with horizontal finger-slide tab scrubbing, sliding glass indicator pill, and haptic ticks.
  */
 @Composable

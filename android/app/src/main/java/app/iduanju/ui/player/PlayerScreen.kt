@@ -37,7 +37,7 @@ import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import kotlinx.coroutines.delay
 
 /**
- * The player of the app: short drama, long video, TVBox VOD, TVBox live and (with [queue]) novel video books.
+ * The player of the app: short drama and long video (with [queue]) video books.
  *
  * [startEp] is the episode number (`HGEpisode.ep`), the channel number of live lists. Playback itself lives in
  * [PlayerSession], which survives recompositions and rotation; this composable only lays out surface, gestures, chrome
@@ -104,20 +104,18 @@ private fun PlayerContent(seriesId: String, startEp: Int, onBack: () -> Unit, qu
     // First-frame handoff never outlives two seconds.
     LaunchedEffect(session.handoff) { if (session.handoff != null) { delay(2_000); session.handoff = null } }
     val scrubbing by remember { derivedStateOf { seekPreview.active } }
-    LaunchedEffect(ui.showChrome, session.playing, ui.panel, scrubbing, ui.channelDrawer) {
-        if (ui.showChrome && session.playing && ui.panel == null && !scrubbing && !ui.channelDrawer && !(BuildConfig.DEBUG && UiEvidence.keepChrome)) { delay(4_000); ui.showChrome = false }
+    LaunchedEffect(ui.showChrome, session.playing, ui.panel, scrubbing) {
+        if (ui.showChrome && session.playing && ui.panel == null && !scrubbing && !(BuildConfig.DEBUG && UiEvidence.keepChrome)) { delay(4_000); ui.showChrome = false }
     }
-    // Leaving landscape closes the drawer; the panel takes over in portrait.
-    LaunchedEffect(dims.landscape) { if (!dims.landscape) ui.channelDrawer = false }
 
-    val padCapable = !inPip && dims.tablet && dims.landscape && metrics.widthDp >= 840 && !session.channelList && isPortraitMedia(session) && session.detail != null
+    val padCapable = !inPip && dims.tablet && dims.landscape && metrics.widthDp >= 840 && isPortraitMedia(session) && session.detail != null
     Row(Modifier.fillMaxSize().background(Color.Black)) {
         PlayerStage(session, ui, enhance, nextDrama, hud, seekPreview, dims, inPip, label, activity, padCapable, onBack, { pip.enter() }, onSwitchSeries, {
-            val text = if (session.channelList) session.episode?.title.orEmpty() else session.detail?.title.orEmpty()
+            val text = session.detail?.title.orEmpty()
             if (text.isNotEmpty()) {
                 val cm = ctx.getSystemService(android.content.ClipboardManager::class.java)
                 cm?.setPrimaryClip(android.content.ClipData.newPlainText("title", text))
-                session.hint = if (session.channelList) "已复制频道名" else "已复制剧名"
+                session.hint = "已复制剧名"
             }
         }, Modifier.weight(1f).fillMaxHeight())
         if (padCapable && ui.padDrawerOpen) PadDrawer(session, ui, onSwitchSeries)
@@ -132,7 +130,7 @@ private fun PlayerStage(
     BoxWithConstraints(modifier.background(Color.Black).clipToBounds()) {
         val aspect = if (constraints.maxHeight > 0) constraints.maxWidth.toFloat() / constraints.maxHeight else 0.5625f
         val height = constraints.maxHeight.toFloat()
-        val controls = !inPip && (ui.showChrome || ui.panel != null || ui.channelDrawer || session.error != null || nextDrama.countdownOn)
+        val controls = !inPip && (ui.showChrome || ui.panel != null || session.error != null || nextDrama.countdownOn)
         // One backdrop layer for every glass surface over the video; recorded only while one of them shows.
         val layer = rememberLayerBackdrop { drawRect(Color.Black); drawContent() }
         val backdrop: Backdrop? = if (controls) layer else null
@@ -174,18 +172,12 @@ private fun PlayerStage(
                 session.hint = if (ui.locked) "已锁定屏幕" else "已解锁"
             }
         }
-        val ready = session.status.isEmpty() && session.error == null && session.firstFrame
-        if (session.live) {
-            CenterTransport(session, dims, ui.showChrome && ready && !session.centerSuppressed && !ui.locked && ui.panel == null && !ui.channelDrawer && !nextDrama.countdownOn,
-                backdrop, Modifier.align(Alignment.Center))
-        }
         // Minimal 2 dp bottom edge progress while the HUD is hidden (no top title blocking portrait short dramas).
-        if (!ui.showChrome && ui.panel == null && !session.live) EdgeProgressBar(session.clock, Modifier.align(Alignment.BottomCenter))
+        if (!ui.showChrome && ui.panel == null) EdgeProgressBar(session.clock, Modifier.align(Alignment.BottomCenter))
         // Floating seek-bar thumbnail above the thumb while scrubbing; draw-only, no touches.
-        if (!session.live) SeekPreviewOverlay(state = seekPreview, extractor = session.seekExtractor, durationProvider = { session.clock.dur },
+        SeekPreviewOverlay(state = seekPreview, extractor = session.seekExtractor, durationProvider = { session.clock.dur },
             coverUrl = session.detail?.cover.orEmpty(), portraitVideo = isPortraitMedia(session))
         nextDrama.CountdownCard(!ui.locked, ui.panel != null, backdrop, Modifier.align(Alignment.Center).padding(horizontal = 24.dp))
-        if (session.channelList) ChannelDrawer(session, ui, dims, ui.channelDrawer && !ui.locked, backdrop, Modifier.align(Alignment.CenterEnd))
         PanelHost(session, ui, enhance, nextDrama, dims, inPip, backdrop, onSwitchSeries, onCopyTitle)
     }
 }
@@ -198,7 +190,7 @@ private fun DanmakuLayer(session: PlayerSession, ui: PlayerUi, dims: PlayerDimen
     val rawTop = with(LocalDensity.current) { WindowInsets.statusBars.getTop(this).toDp() }
     var top by remember { mutableStateOf(0.dp) }
     if (rawTop > top) top = rawTop
-    if (inPip || session.channelList || !(preview || (ui.danmaku && ep != null && session.danmakuCapable))) return
+    if (inPip || !(preview || (ui.danmaku && ep != null && session.danmakuCapable))) return
     DanmakuOverlay(
         player = session.player,
         seriesId = session.seriesId,
@@ -207,7 +199,6 @@ private fun DanmakuLayer(session: PlayerSession, ui: PlayerUi, dims: PlayerDimen
         bottomLimit = if (dims.landscape) 96.dp else 210.dp,
         previewActive = preview,
         externalUrl = session.danmakuUrl,
-        externalLan = session.stream?.lan ?: true,
         playing = session.playing,
     ) { android.util.Log.i("IDJ", "danmaku: $it") }
 }

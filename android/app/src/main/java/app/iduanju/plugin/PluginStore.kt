@@ -138,20 +138,16 @@ class PluginStore(private val ctx: Context,
     sealed class Pasted {
         data class Plugin(val rec: Installed) : Pasted()
         data class Subscription(val sub: PluginSubscription) : Pasted()
-        /** A TVBox config (its text, or its address so relative paths resolve): the TVBox store imports the whole of it. */
-        data class TVBox(val source: String) : Pasted()
     }
     /** iOS PluginInstaller.interpret: an https manifest / .idjplugin / subscription / M3U URL, or a pasted bundle or M3U. Blocking. */
     fun interpret(text: String, origin: String? = null, name: String? = null): Pasted {
         val t = text.trim()
         if (M3UImport.isChannelList(t)) return Pasted.Plugin(installM3U(t, null, name, origin ?: "paste"))
         if (!t.startsWith("https://") && !t.startsWith("http://")) {
-            if (isTVBox(t)) return Pasted.TVBox(t)
             return Pasted.Plugin(install(t, origin ?: "paste"))
         }
         val body = download(t)
         if (M3UImport.isChannelList(body)) return Pasted.Plugin(installM3U(body, t, name, origin ?: t))
-        if (isTVBox(body)) return Pasted.TVBox(t)
         val o = runCatching { JSONObject(body) }.getOrNull() ?: throw PluginException("E_INSTALL", "这个链接不是插件 manifest / .idjplugin / 订阅列表 / M3U")
         return when {
             PluginSubscription.isSubscription(o) -> Pasted.Subscription(addSubscription(t))
@@ -164,12 +160,6 @@ class PluginStore(private val ctx: Context,
             }
             else -> throw PluginException("E_INSTALL", "这个链接不是插件 manifest / .idjplugin / 订阅列表")
         }
-    }
-
-    /** Comments, trailing commas and bare keys are normal in these configs. */
-    private fun isTVBox(text: String): Boolean {
-        val o = app.iduanju.core.tvbox.LenientJson.objectOrNull(text) ?: return false
-        return o.has("sites") || o.has("spider") || o.has("lives") || o.has("storeHouse")
     }
 
     /** A reviewed M3U channel list becomes a static video plugin, under the same rules as scripts/source-compat/m3u_to_idj.py. */

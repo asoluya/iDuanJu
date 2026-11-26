@@ -122,7 +122,6 @@ internal fun GestureLayer(session: PlayerSession, ui: PlayerUi, hud: GestureHud,
                         when {
                             ui.locked -> ui.showChrome = true
                             ui.panel != null -> ui.panel = null
-                            ui.channelDrawer -> ui.channelDrawer = false
                             session.centerSuppressed -> { session.centerSuppressed = false; ui.showChrome = true }
                             else -> ui.showChrome = !ui.showChrome
                         }
@@ -131,14 +130,13 @@ internal fun GestureLayer(session: PlayerSession, ui: PlayerUi, hud: GestureHud,
                         if (ui.locked) return@onDoubleTap
                         val w = size.width
                         when {
-                            session.live -> session.togglePlay()
                             o.x < w / 3 -> { haptics.tick(); session.seekBy(-10_000L) }
                             o.x > w * 2 / 3 -> { haptics.tick(); session.seekBy(10_000L) }
                             else -> session.togglePlay()
                         }
                     },
                     onPress = { tryAwaitRelease(); session.hold(false) },
-                    onLongPress = { if (!ui.locked && !session.live) { haptics.longPress(); session.hold(true) } },
+                    onLongPress = { if (!ui.locked) { haptics.longPress(); session.hold(true) } },
                 )
             }
             .pointerInput(session) {
@@ -181,7 +179,7 @@ internal fun GestureLayer(session: PlayerSession, ui: PlayerUi, hud: GestureHud,
                                 try {
                                     haptics.select()
                                     animate(off, if (off < 0f) -h else h, animationSpec = tween(Motion.SHORT, easing = Motion.Emphasized)) { v, _ -> ui.dragY = v }
-                                    session.handoff = if (session.channelList) null else session.episodes.getOrNull(target)?.vid?.let { EpisodeCache.peekFirstFrame(it) }
+                                    session.handoff = session.episodes.getOrNull(target)?.vid?.let { EpisodeCache.peekFirstFrame(it) }
                                     session.select(target)
                                 } finally { ui.dragY = 0f; committing = false }
                             } else animate(off, 0f, animationSpec = DS.select()) { v, _ -> ui.dragY = v }
@@ -192,7 +190,7 @@ internal fun GestureLayer(session: PlayerSession, ui: PlayerUi, hud: GestureHud,
                 detectVerticalDragGestures(
                     onDragStart = { o ->
                         zone = when {
-                            ui.locked || pip || ui.panel != null || ui.channelDrawer -> 0
+                            ui.locked || pip || ui.panel != null -> 0
                             o.x < size.width * 0.28f -> 1
                             o.x > size.width * 0.72f -> 2
                             committing -> 0
@@ -246,7 +244,7 @@ internal fun GestureLayer(session: PlayerSession, ui: PlayerUi, hud: GestureHud,
                 var on = false
                 fun target(): Long = (start + (acc / size.width * 90_000).toLong()).coerceIn(0, session.clock.dur.coerceAtLeast(0))
                 detectHorizontalDragGestures(
-                    onDragStart = { on = !ui.locked && !session.live && ui.panel == null && session.clock.dur > 0; start = session.player.currentPosition; acc = 0f },
+                    onDragStart = { on = !ui.locked && ui.panel == null && session.clock.dur > 0; start = session.player.currentPosition; acc = 0f },
                     onDragEnd = { if (on) session.seekTo(target()); if (on) session.hint = null },
                     onDragCancel = { if (on) session.hint = null },
                 ) { change, d ->

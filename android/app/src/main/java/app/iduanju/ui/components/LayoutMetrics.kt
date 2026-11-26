@@ -42,7 +42,7 @@ data class LayoutMetrics(
             SizeTier.Compact -> 16.dp
         }
 
-    /** Portrait poster grid columns (home, category, manga, TVBox, library, search results). */
+    /** Portrait poster grid columns (home, category, manga, library, search results). */
     val posterCols: Int
         get() = when {
             widthDp >= 1100 -> 7

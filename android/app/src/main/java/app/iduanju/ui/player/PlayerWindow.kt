@@ -90,7 +90,6 @@ internal fun PlayerWindowEffects(session: PlayerSession, ui: PlayerUi, enhance: 
     }
     BackHandler(enabled = !ui.locked && landscape && ui.manualLandscape == true) { setLandscape(activity, ui, false) }
     BackHandler(enabled = ui.panel != null) { ui.panel = null }
-    BackHandler(enabled = ui.channelDrawer) { ui.channelDrawer = false }
     val hideBars = landscape || (!ui.showChrome && ui.panel == null)
     LaunchedEffect(hideBars) {
         val w = activity?.window ?: return@LaunchedEffect
@@ -135,7 +134,6 @@ internal class PlayerPip(private val ctx: Context, private val activity: Activit
         val act = activity ?: return
         if (!ctx.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) { session.hint = "当前设备不支持画中画"; return }
         ui.panel = null
-        ui.channelDrawer = false
         ui.showChrome = false
         runCatching { act.enterPictureInPictureMode(params()) }.onFailure { session.hint = "无法开启画中画" }
     }
@@ -153,7 +151,7 @@ internal class PlayerPip(private val ctx: Context, private val activity: Activit
             PendingIntent.getBroadcast(ctx, code, Intent(name).setPackage(ctx.packageName), flags))
         val playing = session.player.isPlaying
         val actions = mutableListOf(action(1001, ACTION_PIP_PLAY_PAUSE, if (playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play, if (playing) "暂停" else "播放"))
-        if (session.hasNext) actions.add(action(1002, ACTION_PIP_NEXT, android.R.drawable.ic_media_next, if (session.channelList) "下一个频道" else "下一集"))
+        if (session.hasNext) actions.add(action(1002, ACTION_PIP_NEXT, android.R.drawable.ic_media_next, "下一集"))
         return PictureInPictureParams.Builder().setAspectRatio(safe).setActions(actions).build()
     }
 
@@ -198,15 +196,15 @@ internal fun PlayerMediaSessionEffects(session: PlayerSession, ctx: Context, lab
     }
     DisposableEffect(media) { onDispose { media.release() } }
     val d = session.detail
-    val title = if (session.channelList) session.episode?.title?.ifBlank { null } ?: d?.title.orEmpty() else d?.title.orEmpty()
-    val subtitle = if (session.channelList) session.replay?.title ?: d?.title.orEmpty() else label
+    val title = d?.title.orEmpty()
+    val subtitle = label
     val dur by rememberUpdatedState(session.clock)
     // One duration read per change, not per tick.
     val duration by androidx.compose.runtime.remember(session) { androidx.compose.runtime.derivedStateOf { dur.dur } }
     LaunchedEffect(media, title, subtitle, d?.cover, duration) {
         if (title.isNotEmpty() || subtitle.isNotEmpty()) media.updateMetadata(title, subtitle, d?.cover, duration)
     }
-    val speed = if (session.holding) 2f else if (session.live) 1f else session.speed
+    val speed = if (session.holding) 2f else session.speed
     LaunchedEffect(media, session.playing, session.epIndex, session.hasPrev, session.hasNext, speed, session.seekTick) {
         if (session.detail != null) {
             val pos = runCatching { session.player.currentPosition.coerceAtLeast(0L) }.getOrDefault(0L)

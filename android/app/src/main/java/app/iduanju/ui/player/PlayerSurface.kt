@@ -116,7 +116,7 @@ private fun DragNeighbour(session: PlayerSession, ui: PlayerUi, height: Float, n
     val ep = index?.let { session.episodes.getOrNull(it) }
     val place = Modifier.fillMaxSize().graphicsLayer { translationY = ui.dragY + if (dir > 0) height else -height }
     if (ep != null) {
-        if (session.channelList) ChannelPreview(ep, index + 1, place) else EpisodeFramePreview(ep, ui.fill, place)
+        EpisodeFramePreview(ep, ui.fill, place)
         return
     }
     val pick = nextDrama.swipePick?.takeIf { dir > 0 } ?: return
@@ -132,15 +132,5 @@ private fun EpisodeFramePreview(ep: HGEpisode, fill: Boolean, modifier: Modifier
     Box(modifier.background(Color.Black), contentAlignment = Alignment.Center) {
         if (bmp != null) Image(bmp, null, Modifier.fillMaxSize(), contentScale = if (fill) ContentScale.Crop else ContentScale.Fit)
         else Text(ep.title.takeIf { it.isNotBlank() && it.length <= 24 } ?: "第 ${ep.ep} 集", color = Color.White.copy(0.5f), fontSize = 16.sp, fontWeight = FontWeight.Medium)
-    }
-}
-
-@Composable
-private fun ChannelPreview(ep: HGEpisode, number: Int, modifier: Modifier) {
-    Column(modifier.background(Color.Black).padding(horizontal = 40.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("%03d".format(number), color = Color.White.copy(0.45f), fontSize = 15.sp, fontWeight = FontWeight.Medium)
-        Text(ep.title.ifBlank { "频道 $number" }, color = Color.White, fontSize = 24.sp, lineHeight = 31.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center, modifier = Modifier.padding(top = 8.dp))
-        ep.page?.takeIf { it.isNotBlank() }?.let { Text(it, color = Color.White.copy(0.55f), fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp)) }
     }
 }

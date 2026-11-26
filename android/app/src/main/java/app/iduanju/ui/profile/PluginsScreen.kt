@@ -27,7 +27,6 @@ import app.iduanju.IdjApp
 import app.iduanju.core.plugin.PluginException
 import app.iduanju.core.plugin.PluginManifest
 import app.iduanju.plugin.PluginStore
-import app.iduanju.tvbox.ImportResult
 import app.iduanju.ui.components.CheckRow
 import app.iduanju.ui.components.rowClick
 import app.iduanju.ui.components.GlassConfirm
@@ -80,11 +79,6 @@ fun PluginsScreen(onBack: () -> Unit) {
     suspend fun describe(r: PluginStore.Pasted) = when (r) {
         is PluginStore.Pasted.Plugin -> "已安装「${r.rec.name}」${r.rec.version}"
         is PluginStore.Pasted.Subscription -> "已添加订阅（${r.sub.plugins.size} 个插件 / ${r.sub.cms.size} 个采集站），在下方按需安装"
-        is PluginStore.Pasted.TVBox -> when (val t = withContext(Dispatchers.Main) { IdjApp.instance.tvbox.importText(r.source) }) {
-            is ImportResult.Imported -> "已导入 TVBox 配置「${t.repo.name}」（${t.repo.sites.size} 个站点 / ${t.repo.lives.size} 个直播），在 TVBox 页使用"
-            is ImportResult.Depot -> "已添加多仓「${t.depot.name}」（${t.depot.entries.size} 个配置），在 TVBox 页选择"
-            is ImportResult.Attachment -> "已保存「${t.name}」，供本地 TVBox 配置引用"
-        }
     }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isNotEmpty()) run {
@@ -158,7 +152,7 @@ fun PluginsScreen(onBack: () -> Unit) {
                 Group("添加插件", footer = "插件运行在 QuickJS 沙箱里，只能访问 manifest 声明的域名；未成年相关内容一律过滤。") {
                     LinkRow("从网址添加", ProfileIcons.link) { dialog = "url" }
                     RowDivider()
-                    LinkRow("从文件导入（.idjplugin / .m3u）", ProfileIcons.file, sub = "支持多选 · 插件 / M3U / TVBox JSON") { picker.launch(arrayOf("*/*")) }
+                    LinkRow("从文件导入（.idjplugin / .m3u）", ProfileIcons.file, sub = "支持多选 · 插件 / M3U") { picker.launch(arrayOf("*/*")) }
                     RowDivider()
                     LinkRow("粘贴插件内容", ProfileIcons.paste) { dialog = "paste" }
                     RowDivider()
@@ -323,7 +317,7 @@ private fun PasteDialog(onDismiss: () -> Unit, onDone: (String) -> Unit) {
     val clip = LocalClipboardManager.current
     var text by remember { mutableStateOf("") }
     GlassConfirm(onDismiss, "粘贴插件内容", "安装", { onDone(text) }, confirmEnabled = text.isNotBlank()) {
-        GlassTextField(text, { text = it }, placeholder = ".idjplugin、M3U 频道列表或 TVBox JSON 配置", singleLine = false, minLines = 5, maxLines = 8, fontSize = 13.sp)
+        GlassTextField(text, { text = it }, placeholder = ".idjplugin 或 M3U 频道列表", singleLine = false, minLines = 5, maxLines = 8, fontSize = 13.sp)
         TextAction("从剪贴板粘贴") { clip.getText()?.text?.let { text = it } }
     }
 }

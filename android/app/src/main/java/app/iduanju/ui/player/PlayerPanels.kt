@@ -97,7 +97,7 @@ internal fun BoxScope.PanelHost(
         val maxW = when { centered -> 540.dp; side -> if (dims.tablet) 380.dp else 340.dp; else -> 520.dp }
         val maxH = when { centered -> metrics.heightDp * 0.80f; side -> metrics.heightDp * 0.86f; danmaku -> metrics.heightDp * 0.48f; else -> metrics.heightDp * 0.74f }
         // Grids and channel lists scroll themselves; everything else scrolls as one column.
-        val lazy = shown == PlayerPanel.Episodes || shown == PlayerPanel.Channels || shown == PlayerPanel.Guide
+        val lazy = shown == PlayerPanel.Episodes
         Column(
             Modifier.widthIn(max = maxW).fillMaxWidth().heightIn(max = maxH.dp)
                 // One glass layer over the video. LIQUID: lens glass plus a smoke layer so the text stays legible over
@@ -117,8 +117,6 @@ internal fun BoxScope.PanelHost(
                 PlayerPanel.Tracks -> TracksPanel(session)
                 PlayerPanel.More -> MorePanel(session, ui, enhance, nextDrama, onCopyTitle)
                 PlayerPanel.Danmaku -> DanmakuSettingsSheet(pc = IdjDarkColors, onDismiss = { ui.panel = null }, onReset = { session.hint = "弹幕设置已重置" })
-                PlayerPanel.Channels -> ChannelList(session, Modifier.fillMaxWidth().weight(1f, fill = false)) { session.select(it) }
-                PlayerPanel.Guide -> GuidePanel(session, Modifier.fillMaxWidth().weight(1f, fill = false)) { ui.panel = null }
                 null -> Unit
             }
         }
@@ -127,7 +125,7 @@ internal fun BoxScope.PanelHost(
 
 private fun panelName(p: PlayerPanel?): String = when (p) {
     PlayerPanel.Episodes -> "选集"; PlayerPanel.Speed -> "倍速"; PlayerPanel.Quality -> "画质"; PlayerPanel.Tracks -> "音轨字幕"
-    PlayerPanel.More -> "更多设置"; PlayerPanel.Danmaku -> "弹幕设置"; PlayerPanel.Channels -> "频道"; PlayerPanel.Guide -> "节目单"; null -> ""
+    PlayerPanel.More -> "更多设置"; PlayerPanel.Danmaku -> "弹幕设置"; null -> ""
 }
 
 @Composable
@@ -233,7 +231,7 @@ private fun QualityPanel(session: PlayerSession, close: () -> Unit) {
             PanelRow(l.name.ifBlank { "线路 ${i + 1}" }, if (ok) "${l.episodes.size} 集" else if (l.episodes.isEmpty()) "无可用集" else "仅 ${l.episodes.size} 集", i == session.currentLineIndex, l.episodes.isNotEmpty()) { session.selectLine(i); close() }
         }
         PanelLabel("画质")
-    } else PanelTitle(if (session.channelList) "线路" else "画质", null)
+    } else PanelTitle("画质", null)
     if (!session.multiLine) Spacer(Modifier.height(8.dp))
     val streams = session.streams
     if (streams.isEmpty()) {
@@ -241,7 +239,7 @@ private fun QualityPanel(session: PlayerSession, close: () -> Unit) {
         PanelRow(q, session.player.videoFormat?.takeIf { it.width > 0 }?.let { "${it.width}×${it.height}" } ?: "", true) { close() }
     } else streams.forEach { s ->
         val on = s.streamId == session.stream?.streamId
-        PanelRow(if (session.channelList) session.liveLineName(s) else s.quality?.ifBlank { null } ?: "自动", streamDetail(s, if (on) session else null), on) { session.selectStream(s); close() }
+        PanelRow(s.quality?.ifBlank { null } ?: "自动", streamDetail(s, if (on) session else null), on) { session.selectStream(s); close() }
     }
     session.detail?.source?.takeIf { it.isNotBlank() }?.let {
         PanelLabel("播放源")
@@ -313,15 +311,15 @@ private fun MorePanel(session: PlayerSession, ui: PlayerUi, enhance: EnhanceStat
     OptionRow("AI 超分辨率 (EWA-Lanczos4)", listOf("关闭" to 0, "标准" to 1, "强效" to 2), enhance.level) { enhance.applyLevel(it) }
     if (session.nativeHdr) OptionRow("SDR 转 HDR (逆色调映射) · 当前片源已是原生 ${session.tags.range}", listOf("原生 ${session.tags.range}" to true), true, enabled = false) { }
     else OptionRow("SDR 转 HDR (逆色调映射)", listOf("关闭" to false, "开启" to true), enhance.sdrToHdr) { enhance.applyHdr(it) }
-    OptionRow("定时关闭", listOf("关" to 0, "本集完" to -1, "15分" to 15, "30分" to 30, "60分" to 60).filter { !(session.channelList && it.second == -1) }, session.sleepMode) { session.setSleep(it) }
-    if (!session.queued && !session.channelList) OptionRow("自动连播", listOf("开启" to true, "关闭" to false), session.autoNext) { session.applyAutoNext(it) }
+    OptionRow("定时关闭", listOf("关" to 0, "本集完" to -1, "15分" to 15, "30分" to 30, "60分" to 60), session.sleepMode) { session.setSleep(it) }
+    if (!session.queued) OptionRow("自动连播", listOf("开启" to true, "关闭" to false), session.autoNext) { session.applyAutoNext(it) }
     if (nextDrama.capable) OptionRow("播完连刷推荐 (最后一集播完自动续播下一部)", listOf("开启" to true, "关闭" to false), nextDrama.enabled) { nextDrama.applyEnabled(it) }
     Text("快捷操作", color = Color.White.copy(0.60f), fontSize = 12.sp, fontWeight = FontWeight.Medium)
     Spacer(Modifier.height(6.dp))
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         QuickPill("技术信息", Icons.Filled.Info, ui.showTech, Modifier.weight(1f)) { ui.showTech = !ui.showTech; ui.showChrome = true }
         QuickPill(if (session.muted) "已静音" else "静音", if (session.muted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp, session.muted, Modifier.weight(1f)) { session.toggleMute() }
-        QuickPill(if (session.channelList) "复制频道名" else "复制剧名", Icons.Filled.ContentCopy, false, Modifier.weight(1f), onCopyTitle)
+        QuickPill("复制剧名", Icons.Filled.ContentCopy, false, Modifier.weight(1f), onCopyTitle)
     }
 }
 

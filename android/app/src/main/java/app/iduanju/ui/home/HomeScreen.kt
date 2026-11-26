@@ -172,7 +172,7 @@ internal fun homePages(): List<HomePageRef> {
     val adult = app.cms.adultUnlocked
     fun built(s: HomeSource) = HomePageRef(s.name, s.label, s)
     val natural = buildList {
-        app.cms.visibleSites.filterNot { it.origin.equals("TVBox", ignoreCase = true) || it.origin.startsWith("TVBox") }.forEach { add(HomePageRef("cms:" + it.key, it.name, it)) }
+        app.cms.visibleSites.forEach { add(HomePageRef("cms:" + it.key, it.name, it)) }
         app.plugins.visible(adult).filter { it.type == "video" || it.type == "shortdrama" }.forEach { add(HomePageRef("plugin:" + it.id, it.name, it)) }
         if (app.manga.providers.isNotEmpty()) add(built(HomeSource.manga))
     }
@@ -218,9 +218,6 @@ fun HomeScreen(onOpenDetail: (String) -> Unit, onSearch: () -> Unit = {}, onPlay
                 )
                 Spacer(Modifier.height(4.dp))
                 GlassButton("导入插件 / 订阅", onClick = { go("plugins") })
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    GlassButton("导入 TVBox", tone = ButtonTone.Glass, size = ButtonSize.Small, onClick = { go("tvbox/config") })
-                }
             }
         }
         return

@@ -12,9 +12,6 @@ dependencies {
     testImplementation("net.sf.kxml:kxml2:2.3.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
-    // Runs shared/tvbox/js (the QuickJS bootstrap and its libraries) on the JVM; test scope only.
-    testImplementation("org.graalvm.polyglot:polyglot:24.1.1")
-    testRuntimeOnly("org.graalvm.js:js-language:24.1.1") // interpreter only, no native runtime
 }
 tasks.test {
     // live network tests only when -Plive is passed
@@ -27,4 +24,4 @@ tasks.test {
     testLogging { events("passed", "failed", "skipped"); showStandardStreams = true; exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL }
 }
 
-sourceSets.test { resources.srcDirs("../../shared/legado-port", "../../shared/tvbox") }
+sourceSets.test { resources.srcDirs("../../shared/legado-port") }

@@ -297,7 +297,7 @@ object PlayerPrefs {
 class VideoEnhancer(private val player: ExoPlayer, private val effect: VideoEnhanceEffect) {
     private var pipeline = false
 
-    fun install(on: Boolean, live: Boolean) {
+    fun install(on: Boolean) {
         if (!on && !pipeline) return
         val effects = if (on) listOf(effect) else emptyList()
         runCatching {
@@ -306,7 +306,6 @@ class VideoEnhancer(private val player: ExoPlayer, private val effect: VideoEnha
             player.setVideoEffects(effects)
             if (first && player.playbackState != androidx.media3.common.Player.STATE_IDLE) {
                 player.stop()
-                if (live) player.seekToDefaultPosition()
                 player.prepare()
             }
         }.onFailure { Log.w("IDJ", "setVideoEffects failed", it) }

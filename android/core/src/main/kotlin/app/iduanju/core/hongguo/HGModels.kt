@@ -51,8 +51,6 @@ data class HGSeriesDetail(
     var source: String = "红果短剧",
     /** All playback lines (TVBox / multi-line sources); empty for single-line sources. [episodes] is always the default line. */
     var lines: List<HGPlayLine> = emptyList(),
-    /** Live channel list: [episodes] are channels (`page` = group name) and there is no timeline to seek. */
-    var isLive: Boolean = false,
 )
 
 data class HGPage(
@@ -87,8 +85,6 @@ data class HGStream(
     val subtitles: List<HGSubtitle> = emptyList(),
     /** MIME hint from the source (TVBox `format`), used to pick the media source before opening the URL. */
     val format: String? = null,
-    /** May lead into the local network; false for TVBox configs without that permission. */
-    val lan: Boolean = true,
 ) {
     val id: String get() = streamId
 }
