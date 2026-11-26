@@ -201,7 +201,8 @@ private struct LiquidGlassFallback<S: Shape>: ViewModifier {
 
     private var wash: Color {
         switch tone {
-        case .regular: return dark ? Color.white.opacity(0.06) : Color.white.opacity(0.30)
+        // Light: dense enough that grey labels stay readable over covers (the tab bar), as on Android.
+        case .regular: return dark ? Color.white.opacity(0.06) : Color.white.opacity(0.52)
         case .panel: return dark ? Color.black.opacity(0.36) : Color.white.opacity(0.45)
         case .clear: return onMedia ? Color.black.opacity(0.26) : (dark ? Color.black.opacity(0.10) : Color.white.opacity(0.12))
         case .tinted(let c): return c.opacity(0.85)
