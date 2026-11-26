@@ -25,7 +25,6 @@ class MainActivity : ComponentActivity() {
         if(BuildConfig.DEBUG) {
             app.iduanju.ui.UiEvidence.keepChrome=intent?.getBooleanExtra("qaKeepChrome",false) ?: false
             app.iduanju.ui.UiEvidence.page=intent?.getStringExtra("qaPage").orEmpty()
-            if(app.iduanju.ui.UiEvidence.page=="novel")app.iduanju.ui.home.HomeJump.label="小说"
             app.iduanju.ui.UiEvidence.panel=intent?.getStringExtra("qaPanel")
             app.iduanju.ui.UiEvidence.scroll=intent?.getBooleanExtra("qaScroll",false) ?: false
             app.iduanju.ui.UiEvidence.landscape=intent?.getBooleanExtra("qaLandscape",false) ?: false

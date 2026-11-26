@@ -92,7 +92,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** Mirrors iOS HomeSource / HomeTab (HomeView.swift). */
-enum class HomeSource(val label: String) { hongguo("红果"), huangguo("黄果"), ai("AI剧"), channels("频道"), manga("漫画"), novel("小说") }
+enum class HomeSource(val label: String) { hongguo("红果"), huangguo("黄果"), ai("AI剧"), channels("频道"), manga("漫画") }
 
 sealed class HomeTab(val subLabel: String) {
     data class Hongguo(val g: HGRankGenre) : HomeTab(
@@ -218,7 +218,6 @@ fun HomeScreen(onOpenDetail: (String) -> Unit, onSearch: () -> Unit = {}, onPlay
                 GlassButton("导入插件 / 订阅", onClick = { go("plugins") })
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     GlassButton("导入 TVBox", tone = ButtonTone.Glass, size = ButtonSize.Small, onClick = { go("tvbox/config") })
-                    GlassButton("小说/书源", tone = ButtonTone.Glass, size = ButtonSize.Small, onClick = { go("novel") })
                     GlassButton("添加频道", tone = ButtonTone.Glass, size = ButtonSize.Small, onClick = { go("channels") })
                 }
             }

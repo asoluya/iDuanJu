@@ -115,8 +115,6 @@ fun ProfileScreen(onOpenDetail: (String) -> Unit = {}) {
                     LinkRow("漫画", ProfileIcons.manga, trailing = ia.manga.favorites.size.takeIf { it > 0 }?.let { "收藏 $it" }) { go("home/manga") }
                 }
                 RowDivider()
-                LinkRow("小说", ProfileIcons.manga, sub = "TXT、阅读书源、搜索与发现") { go("novel") }
-                RowDivider()
                 LinkRow("下载管理", ProfileIcons.download, trailing = "暂未支持") { notify("Android 版暂不支持离线下载") }
             }
         }

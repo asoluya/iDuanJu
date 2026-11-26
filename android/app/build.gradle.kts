@@ -84,15 +84,11 @@ if (withPython) {
     }
     tasks.configureEach { if (name.contains("Python") && name != "copyTVBoxPython") dependsOn(copyTVBoxPython) }
 }
-val copyBuiltinNovelSources by tasks.registering(Sync::class) {
-    from(rootProject.file("../shared/novel"))
-    into(layout.buildDirectory.dir("generated/idj-assets/novel"))
-}
 val copySharedLicenses by tasks.registering(Sync::class) {
     from(rootProject.file("../STV/Resources/Licenses")) { include("HGCurrentPlayer-*", "Rhino-*", "legado-E-*", "FFmpeg-LGPL-2.1.txt") }
     into(layout.buildDirectory.dir("generated/idj-assets/licenses"))
 }
-tasks.named("preBuild") { dependsOn(copySharedLicenses, copyTVBoxScripts, copyTVBoxPython, copyBuiltinNovelSources) }
+tasks.named("preBuild") { dependsOn(copySharedLicenses, copyTVBoxScripts, copyTVBoxPython) }
 dependencies {
     implementation(project(":core"))
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
