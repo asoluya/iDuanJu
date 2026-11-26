@@ -2,11 +2,13 @@ import Foundation
 
 /// Which upstream a series comes from. All requests go directly from the device to that upstream.
 /// Built-in sources are fixed; plugin sources are `p.<plugin id>` (JS plugins) or `cms.<key>` (苹果 CMS 采集站).
+/// TVBox sources are `tvb.<site uid>` (点播站点, any spider type) and `tvl.<live uid>` (直播列表).
 struct DramaSource: RawRepresentable, Hashable, Codable, Identifiable, Sendable {
     let rawValue: String
     init?(rawValue: String) {
         guard rawValue == "legado" || Self.builtins.contains(where: { $0.rawValue == rawValue })
-                || (rawValue.hasPrefix("p.") && rawValue.count > 2) || (rawValue.hasPrefix("cms.") && rawValue.count > 4) else { return nil }
+                || (rawValue.hasPrefix("p.") && rawValue.count > 2) || (rawValue.hasPrefix("cms.") && rawValue.count > 4)
+                || (rawValue.hasPrefix("tvb.") && rawValue.count > 4) || (rawValue.hasPrefix("tvl.") && rawValue.count > 4) else { return nil }
         self.rawValue = rawValue
     }
     private init(_ raw: String) { rawValue = raw }
@@ -30,11 +32,18 @@ struct DramaSource: RawRepresentable, Hashable, Codable, Identifiable, Sendable 
 
     static func plugin(_ id: String) -> DramaSource { DramaSource("p." + id) }
     static func cms(_ key: String) -> DramaSource { DramaSource("cms." + key) }
+    static func tvbox(_ uid: String) -> DramaSource { DramaSource("tvb." + uid) }
+    static func tvboxLive(_ uid: String) -> DramaSource { DramaSource("tvl." + uid) }
     /// JS plugin id when this is a plugin source.
     var pluginID: String? { rawValue.hasPrefix("p.") ? String(rawValue.dropFirst(2)) : nil }
     /// 苹果 CMS site key when this is a 采集站.
     var cmsKey: String? { rawValue.hasPrefix("cms.") ? String(rawValue.dropFirst(4)) : nil }
-    var isDynamic: Bool { pluginID != nil || cmsKey != nil }
+    /// TVBox 点播站点 uid (`TVBoxSite.uid`) when this is a TVBox VOD source.
+    var tvboxUID: String? { rawValue.hasPrefix("tvb.") ? String(rawValue.dropFirst(4)) : nil }
+    /// TVBox 直播列表 uid (`TVBoxLiveSource.uid`) when this is a live channel list.
+    var tvboxLiveUID: String? { rawValue.hasPrefix("tvl.") ? String(rawValue.dropFirst(4)) : nil }
+    var isTVBox: Bool { tvboxUID != nil || tvboxLiveUID != nil }
+    var isDynamic: Bool { pluginID != nil || cmsKey != nil || isTVBox }
 
     var id: String { rawValue }
     var label: String {
@@ -57,6 +66,8 @@ struct DramaSource: RawRepresentable, Hashable, Codable, Identifiable, Sendable 
         default:
             if let p = pluginID { PluginStore.snapshot(p)?.manifest.name ?? "插件（已移除）" }
             else if let k = cmsKey { CMSStore.site(k)?.name ?? "采集站（已移除）" }
+            else if let u = tvboxUID { TVBoxStore.site(u)?.name ?? "TVBox" }
+            else if let u = tvboxLiveUID { TVBoxStore.live(u)?.name ?? "TVBox 直播" }
             else { rawValue }
         }
     }
@@ -99,6 +110,21 @@ struct HGEpisode: Identifiable, Hashable {
     var id: String { vid.isEmpty ? "ep\(ep)" : vid }
 }
 
+/// One playback line (线路) of a multi-line title: same episodes, different upstream (`vod_play_from`).
+struct HGPlayLine: Hashable, Identifiable {
+    let id: String
+    let name: String
+    let episodes: [HGEpisode]
+}
+
+/// External subtitle delivered together with a stream (TVBox `subs`).
+struct HGSubtitle: Hashable {
+    var name: String
+    var url: String
+    var language: String? = nil
+    var format: String? = nil
+}
+
 struct HGSeriesDetail: Hashable {
     var source: DramaSource = .hongguo
     let seriesId: String
@@ -121,6 +147,10 @@ struct HGSeriesDetail: Hashable {
     var rating: Double = 0
     var ratingCount: String = ""
     var hotText: String = ""
+    /// All playback lines (TVBox / multi-line sources). Empty for single-line sources; `episodes` is always the default line.
+    var lines: [HGPlayLine] = []
+    /// Live channel list: `episodes` are channels (`page` = group name) and there is no timeline to seek.
+    var isLive: Bool = false
 }
 
 /// A hongguo celebrity (actor). `id` is the numeric celebrity_id used by the homepage / works APIs.
@@ -179,6 +209,11 @@ struct HGStream: Hashable, Identifiable {
     var kind: MediaKind = .mp4Cenc
     var backupURL: URL? = nil
     var headers: [String: String] = [:]
+    var subtitles: [HGSubtitle] = []
+    /// MIME hint from the source (TVBox `format`), used to pick the playback core before opening the URL.
+    var format: String? = nil
+    /// TVBox: whether this stream may be on the local network (see `LanPolicy`); nil = no policy.
+    var lan: Bool? = nil
     var id: String { streamId ?? quality ?? url }
 }
 
@@ -191,4 +226,6 @@ struct HGResolvedVideo: Hashable {
     let err: String?
     let streams: [HGStream]
     var note: String? = nil
+    /// TVBox 弹幕 (XML / JSON) address, when the source provides one.
+    var danmaku: String? = nil
 }
