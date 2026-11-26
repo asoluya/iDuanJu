@@ -135,8 +135,10 @@ fun SearchScreen(
     // Reactive multi-source list: enabled CMS sites + enabled video/shortdrama plugins (no built-ins)
     val sources by remember { derivedStateOf {
         val adult = ia.cms.adultUnlocked
-        ia.cms.visibleSites.map { "cms:" + it.key to it.name } +
+        val natural = ia.cms.visibleSites.map { "cms:" + it.key to it.name } +
             ia.plugins.visible(adult).filter { it.type == "video" || it.type == "shortdrama" }.map { "plugin:" + it.id to it.name }
+        val order = ia.settings.homePageOrder
+        if (order.isEmpty()) natural else natural.sortedBy { val i = order.indexOf(it.first); if (i < 0) Int.MAX_VALUE else i }
     } }
 
     var source by vm.source
