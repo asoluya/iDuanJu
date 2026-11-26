@@ -6,7 +6,17 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.DragHandle
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.zIndex
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -79,32 +89,68 @@ fun SourcesScreen(onBack: () -> Unit) {
     )
 }
 
-/** 首页频道顺序：调整首页顶部频道排（采集站 / 插件 / 频道 / 漫画 / 小说）的先后，点上移/下移立即保存并生效。 */
+/** 首页频道顺序：调整首页顶部频道排（采集站 / 插件 / 频道 / 漫画 / 小说）的先后，长按拖动排序，松手立即保存并生效。 */
 @Composable
 private fun HomeOrderGroup() {
     val c = IdjThemeColors
     val ia = IdjApp.instance
     var pages by remember { mutableStateOf(homePages()) }
-    fun apply(list: List<app.iduanju.ui.home.HomePageRef>) {
-        pages = list
-        ia.settings.saveHomePageOrder(list.map { it.key })
-    }
-    Group("首页频道顺序", footer = "调整首页顶部频道排的先后顺序，立即生效；之后新增的频道会自动排在末尾。") {
+    var draggingKey by remember { mutableStateOf<String?>(null) }
+    var dragOffset by remember { mutableFloatStateOf(0f) }
+    val rowHeights = remember { mutableStateMapOf<String, Int>() }
+    Group("首页频道顺序", footer = "长按任意频道并拖动即可调整先后顺序，立即生效；之后新增的频道会自动排在末尾。") {
         if (pages.size < 2) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
                 Text("当前频道不足两个，无需排序", color = c.secondary, fontSize = 14.sp)
             }
         } else {
             pages.forEachIndexed { i, p ->
-                if (i > 0) RowDivider()
-                Row(Modifier.fillMaxWidth().heightIn(min = 50.dp).padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(p.label, color = c.text, fontSize = 16.sp, modifier = Modifier.weight(1f))
-                    TextAction("上移", enabled = i > 0) {
-                        val l = pages.toMutableList(); val t = l[i - 1]; l[i - 1] = l[i]; l[i] = t; apply(l)
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    TextAction("下移", enabled = i < pages.size - 1) {
-                        val l = pages.toMutableList(); val t = l[i + 1]; l[i + 1] = l[i]; l[i] = t; apply(l)
+                key(p.key) {
+                    if (i > 0) RowDivider()
+                    val dragging = draggingKey == p.key
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 50.dp)
+                            .zIndex(if (dragging) 1f else 0f)
+                            .graphicsLayer { translationY = if (dragging) dragOffset else 0f }
+                            .background(if (dragging) c.card else Color.Transparent)
+                            .onSizeChanged { rowHeights[p.key] = it.height }
+                            .pointerInput(p.key) {
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = { draggingKey = p.key; dragOffset = 0f },
+                                    onDragEnd = { draggingKey = null; dragOffset = 0f; ia.settings.saveHomePageOrder(pages.map { it.key }) },
+                                    onDragCancel = { draggingKey = null; dragOffset = 0f },
+                                    onDrag = { change, amount ->
+                                        change.consume()
+                                        dragOffset += amount.y
+                                        val cur = pages.indexOfFirst { it.key == p.key }
+                                        if (cur >= 0) {
+                                            var rest = dragOffset
+                                            var idx = cur
+                                            if (rest > 0f) {
+                                                while (idx < pages.lastIndex) {
+                                                    val nh = (rowHeights[pages[idx + 1].key] ?: rowHeights[p.key] ?: 0).toFloat()
+                                                    if (nh <= 0f || rest <= nh / 2f) break
+                                                    rest -= nh; idx++
+                                                }
+                                            } else if (rest < 0f) {
+                                                while (idx > 0) {
+                                                    val nh = (rowHeights[pages[idx - 1].key] ?: rowHeights[p.key] ?: 0).toFloat()
+                                                    if (nh <= 0f || -rest <= nh / 2f) break
+                                                    rest += nh; idx--
+                                                }
+                                            }
+                                            if (idx != cur) {
+                                                val l = pages.toMutableList(); l.add(idx, l.removeAt(cur)); pages = l; dragOffset = rest
+                                            }
+                                        }
+                                    },
+                                )
+                            }
+                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(p.label, color = c.text, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                        Icon(Icons.Rounded.DragHandle, contentDescription = "长按拖动排序", tint = c.secondary, modifier = Modifier.size(22.dp))
                     }
                 }
             }
