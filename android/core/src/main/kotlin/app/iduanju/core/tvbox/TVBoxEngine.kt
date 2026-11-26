@@ -179,6 +179,9 @@ class TVBoxEngine(private val net: TVBoxNet, private val platform: TVBoxPlatform
                 val host = platform.jar ?: throw ProviderException.unsupported("此版本未包含 JAR 运行时")
                 val ref = SpiderRef.parse(jar)
                 if (ref.isEmpty) throw ProviderException.invalid("配置没有给出 spider 地址")
+                // CatVod spiders probe the loopback proxy (9978+) on their own during init/playerContent and
+                // return a broken address when nothing listens; the lazy start must happen before they run.
+                server.start()
                 val tag = Any()
                 onAbort { http.cancel(tag) }
                 val ext = served(site.ext)
@@ -314,6 +317,7 @@ class TVBoxEngine(private val net: TVBoxNet, private val platform: TVBoxPlatform
         TVBoxUrl.p2p(id)?.let { throw ProviderException.unsupported("$it 链接需要 P2P 内核，暂不支持") }
         val config = ref.repo.config
         val text = call(ref, "播放") { it.playerContent(flag, id, config.flags) }
+        platform.log("IDJdbg playerContent: ${text.take(800)}")
         val r = if (text.isBlank()) throw ProviderException.upstream("站点没有返回播放信息") else PlayerResult.parse(text)
         val manual = if (r.parse == 1 && ref.site.kind.isCode) runCatching { call(ref, "校验") { it.manualVideoCheck() } }.getOrDefault(false) else false
         val parsed = chain(ref.repo, config.jarOf(ref.site)).resolve(r, flag, ref.site.click, if (manual) { u -> runCatching { call(ref, "校验") { it.isVideoFormat(u) } }.getOrDefault(false) } else null)
@@ -325,6 +329,7 @@ class TVBoxEngine(private val net: TVBoxNet, private val platform: TVBoxPlatform
             try { stream(ref.repo, "tvb$i", name.ifEmpty { if (parsed.urls.size > 1) "画质 ${i + 1}" else parsed.via.ifEmpty { flag } }, TVBoxUrl.vod(fix(u)), ref.site.headers + parsed.headers, subs, r.format, jar) } catch (e: ProviderException) { refused = e; null }
         }
         val first = streams.firstOrNull() ?: throw refused ?: ProviderException.upstream(r.message.ifEmpty { "没有可播放的地址" })
+        platform.log("IDJdbg stream: ${first.url.take(300)} kind=${first.kind} format=${first.format}")
         return HGResolvedVideo(vid, url = first.url, streams = streams, danmaku = r.danmaku.ifEmpty { null }?.let(fix)?.takeIf { refusal(ref.repo, it, jar) == null })
     }
 
@@ -537,7 +542,17 @@ class TVBoxEngine(private val net: TVBoxNet, private val platform: TVBoxPlatform
         val ref = if (script || siteKey.isNotEmpty()) proxyTarget(when (kind) { "js" -> SiteKind.Js; "py" -> SiteKind.Py; else -> SiteKind.Jar }, siteKey) else null
         if (script && ref == null) return ProxyReply.text("没有找到站点 $siteKey", 404)
         val reply = ref?.let { r -> runBlocking { call(r, "代理", 30_000) { it.proxyLocal(params) } } }
-        return reply ?: (if (script) null else platform.jar?.proxy(params)) ?: ProxyReply.text("no handler", 404)
+        val out = reply ?: (if (script) null else platform.jar?.proxy(params)) ?: ProxyReply.text("no handler", 404)
+        platform.log("IDJdbg proxy do=${params["do"]} siteKey=${params["siteKey"]} url=${params["url"]?.take(200)} -> ${out.code} ${out.type} len=${out.length}")
+        if (params["do"] == "m3u8") {
+            val p = java.io.PushbackInputStream(out.body, 1024)
+            val b = ByteArray(256)
+            val n = p.read(b)
+            if (n > 0) p.unread(b, 0, n)
+            platform.log("IDJdbg head[${out.code}] headers=${out.headers} body=" + String(b, 0, maxOf(n, 0), Charsets.ISO_8859_1).replace("\n", "\\n").take(220))
+            return ProxyReply(out.code, out.type, p, out.headers, out.length)
+        }
+        return out
     }
 
     /** The live spider a proxied address belongs to: same key, loaded sessions and the active config first. */
