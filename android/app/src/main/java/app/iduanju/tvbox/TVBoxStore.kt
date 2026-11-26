@@ -157,9 +157,28 @@ class TVBoxStore(private val ctx: Context) {
         loaded = true
         if (watches.isNotEmpty()) importWatches(watches)
         if (s.bridgeOn) startBridge()
+        seedBuiltin()
         // the site the user will most likely look at is warmed up off the main thread
         activeRepo?.let { r -> engine.preload(state.lastSite[r.id] ?: return@let) }
         withContext(Dispatchers.IO) { runCatching { engine.trimCaches() } }
+    }
+
+    /** One-time seed of the built-in config: skipped once it succeeded (marker file), and a config the user imported from the same address counts as seeded. An existing active config keeps its active status. */
+    private fun seedBuiltin() {
+        if (File(root, BUILTIN_MARKER).exists()) return
+        val prevActive = state.active
+        scope.launch {
+            if (repos.any { it.record.url == BUILTIN_URL }) {
+                withContext(disk) { runCatching { root.mkdirs(); File(root, BUILTIN_MARKER).writeText("1") } }
+                return@launch
+            }
+            val r = runCatching { importUrl(BUILTIN_URL, name = BUILTIN_NAME) }.getOrNull()
+            if (r is ImportResult.Imported) {
+                setTrust(r.repo.id, Trust.Trusted)
+                if (prevActive.isNotEmpty() && prevActive != r.repo.id) select(prevActive)
+                withContext(disk) { runCatching { root.mkdirs(); File(root, BUILTIN_MARKER).writeText("1") } }
+            }
+        }
     }
 
     private fun repoFile(id: String) = File(root, "repos/" + id.filter { it.isLetterOrDigit() || it == '-' || it == '_' } + ".json")
@@ -474,6 +493,10 @@ class TVBoxStore(private val ctx: Context) {
 
     companion object {
         const val BRIDGE_PORT = 9979
+        /** Built-in TVBox config seeded once on a fresh install (no repos yet); the marker keeps a user-deleted builtin from coming back. */
+        private const val BUILTIN_URL = "http://www.饭太硬.net/tv"
+        private const val BUILTIN_NAME = "饭太硬"
+        private const val BUILTIN_MARKER = ".builtin_fantiying_v1"
         private val ATTACHMENTS = setOf("jar", "js", "py", "dex", "png", "jpg", "jpeg", "gif", "zip")
         private val BUILTIN_DOH = listOf(
             TVBoxDoh("阿里 DNS", "https://dns.alidns.com/dns-query", listOf("223.5.5.5", "223.6.6.6")),
