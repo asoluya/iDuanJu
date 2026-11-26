@@ -12,12 +12,17 @@ struct RootTabView: View {
             let metrics = LayoutMetrics(width: geo.size.width, height: geo.size.height)
             let showNav = paths[tab].isEmpty
             HStack(spacing: 0) {
-                if showNav && metrics.useRail {
-                    GlassNavigationRail(selection: $tab, items: Self.items) { i in
-                        if i == tab { paths[i] = NavigationPath() }
+                // The spring belongs to the bars alone: attached to the whole tree (as it was) every push and pop animated
+                // the layout of all five tabs.
+                Group {
+                    if showNav && metrics.useRail {
+                        GlassNavigationRail(selection: $tab, items: Self.items) { i in
+                            if i == tab { paths[i] = NavigationPath() }
+                        }
+                        .transition(.move(edge: .leading).combined(with: .opacity))
                     }
-                    .transition(.move(edge: .leading).combined(with: .opacity))
                 }
+                .animation(DS.select, value: showNav && metrics.useRail)
                 TabView(selection: $tab) {
                     Stack(path: $paths[0], reserveBottomBar: !metrics.useRail) { HomeView() }.tag(0)
                     Stack(path: $paths[1], reserveBottomBar: !metrics.useRail) { TVBoxHubView() }.tag(1)
@@ -27,17 +32,18 @@ struct RootTabView: View {
                 }
                 .tint(STVTheme.accent)
                 .overlay(alignment: .bottom) {
-                    if showNav && !metrics.useRail {
-                        GlassTabBar(selection: $tab, items: Self.items) { i in
-                            if i == tab { paths[i] = NavigationPath() }
+                    Group {
+                        if showNav && !metrics.useRail {
+                            GlassTabBar(selection: $tab, items: Self.items) { i in
+                                if i == tab { paths[i] = NavigationPath() }
+                            }
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
                         }
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
+                    .animation(DS.select, value: showNav && !metrics.useRail)
                 }
             }
             .environment(\.layoutMetrics, metrics)
-            .animation(.spring(response: 0.32, dampingFraction: 0.86), value: paths[tab].isEmpty)
-            .animation(.spring(response: 0.32, dampingFraction: 0.86), value: metrics.useRail)
         }
         .onAppear {
             Router.handler = { r in paths[tab].append(r) }
@@ -73,53 +79,78 @@ struct GlassTabBar: View {
     var onReselect: (Int) -> Void = { _ in }
     @Namespace private var ns
     var body: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 4) {
-                ForEach(items.indices, id: \.self) { i in
-                    let on = i == selection
-                    Button {
-                        if on { onReselect(i) } else { withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) { selection = i } }
-                    } label: {
-                        VStack(spacing: 2) {
-                            Image(systemName: items[i].1).font(.system(size: 17, weight: on ? .semibold : .regular)).frame(height: 20)
-                            Text(items[i].0).font(.system(size: 11, weight: on ? .semibold : .medium))
-                        }
-                        .foregroundStyle(on ? STVTheme.text : STVTheme.secondary)
-                        .frame(maxWidth: .infinity).frame(height: 48)
-                        .background {
-                            if on { Capsule().fill(STVTheme.glassBorder).matchedGeometryEffect(id: "pill", in: ns) }
-                        }
-                        .contentShape(Capsule())
+        LiquidGlassGroup(spacing: 10) {
+            HStack(spacing: 10) {
+                HStack(spacing: 4) {
+                    ForEach(items.indices, id: \.self) { i in
+                        NavBarItem(title: items[i].0, symbol: items[i].1, on: i == selection, height: 48, ns: ns) { pick(i) }
+                            .accessibilityIdentifier("tab.\(i)")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(items[i].0)
-                    .accessibilityIdentifier("tab.\(i)")
-                    .accessibilityAddTraits(on ? .isSelected : [])
                 }
-            }
-            .padding(6)
-            .dsBar(30)
+                .padding(6)
+                .liquidGlassCapsule(interactive: true)
 
-            if let searchTag {
-                let searchOn = selection == searchTag
-                Button {
-                    if searchOn { onReselect(searchTag) } else { withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) { selection = searchTag } }
-                } label: {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 19, weight: searchOn ? .bold : .semibold))
-                        .foregroundStyle(searchOn ? STVTheme.accent : STVTheme.text)
-                        .frame(width: 60, height: 60)
-                        .dsBar(30)
+                if let searchTag {
+                    NavSearchButton(on: selection == searchTag, size: 60) { pick(searchTag) }
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("搜索")
-                .accessibilityIdentifier("tab.search")
-                .accessibilityAddTraits(searchOn ? .isSelected : [])
             }
         }
         .frame(maxWidth: 420)
         .padding(.horizontal, 16)
         .padding(.bottom, -8)
+    }
+
+    private func pick(_ i: Int) {
+        if i == selection { onReselect(i) } else { withAnimation(DS.select) { selection = i } }
+    }
+}
+
+/// One destination of the tab bar / rail; the selection thumb slides between neighbours.
+private struct NavBarItem: View {
+    let title: String
+    let symbol: String
+    let on: Bool
+    let height: CGFloat
+    let ns: Namespace.ID
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 2) {
+                Image(systemName: symbol).font(.system(size: 17, weight: on ? .semibold : .regular)).frame(height: 20)
+                Text(title).font(.system(size: 11, weight: on ? .semibold : .medium))
+            }
+            .foregroundStyle(on ? STVTheme.accent : STVTheme.secondary)
+            .frame(maxWidth: .infinity).frame(height: height)
+            .background {
+                if on {
+                    Capsule(style: .continuous).fill(STVTheme.glassBorder).matchedGeometryEffect(id: "pill", in: ns)
+                }
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(PressScale(scale: 0.94))
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+}
+
+private struct NavSearchButton: View {
+    let on: Bool
+    let size: CGFloat
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 19, weight: on ? .bold : .semibold))
+                .foregroundStyle(on ? STVTheme.accent : STVTheme.text)
+                .frame(width: size, height: size)
+                .liquidGlass(Circle(), interactive: true)
+                .contentShape(Circle())
+        }
+        .buttonStyle(PressScale(scale: 0.94))
+        .accessibilityLabel("搜索")
+        .accessibilityIdentifier("tab.search")
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 }
 
@@ -131,53 +162,28 @@ struct GlassNavigationRail: View {
     var onReselect: (Int) -> Void = { _ in }
     @Namespace private var ns
     var body: some View {
-        VStack(spacing: 12) {
-            if let searchTag {
-                let searchOn = selection == searchTag
-                Button {
-                    if searchOn { onReselect(searchTag) } else { withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) { selection = searchTag } }
-                } label: {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 19, weight: searchOn ? .bold : .semibold))
-                        .foregroundStyle(searchOn ? STVTheme.accent : STVTheme.text)
-                        .frame(width: 56, height: 56)
-                        .dsBar(28)
+        LiquidGlassGroup(spacing: 12) {
+            VStack(spacing: 12) {
+                if let searchTag {
+                    NavSearchButton(on: selection == searchTag, size: 56) { pick(searchTag) }
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("搜索")
-                .accessibilityIdentifier("tab.search")
-                .accessibilityAddTraits(searchOn ? .isSelected : [])
-            }
-
-            VStack(spacing: 6) {
-                ForEach(items.indices, id: \.self) { i in
-                    let on = i == selection
-                    Button {
-                        if on { onReselect(i) } else { withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) { selection = i } }
-                    } label: {
-                        VStack(spacing: 3) {
-                            Image(systemName: items[i].1).font(.system(size: 17, weight: on ? .semibold : .regular)).frame(height: 20)
-                            Text(items[i].0).font(.system(size: 11, weight: on ? .semibold : .medium))
-                        }
-                        .foregroundStyle(on ? STVTheme.text : STVTheme.secondary)
-                        .frame(maxWidth: .infinity).frame(height: 56)
-                        .background {
-                            if on { RoundedRectangle(cornerRadius: 22, style: .continuous).fill(STVTheme.glassBorder).matchedGeometryEffect(id: "railPill", in: ns) }
-                        }
-                        .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                VStack(spacing: 6) {
+                    ForEach(items.indices, id: \.self) { i in
+                        NavBarItem(title: items[i].0, symbol: items[i].1, on: i == selection, height: 56, ns: ns) { pick(i) }
+                            .accessibilityIdentifier("tab.\(i)")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(items[i].0)
-                    .accessibilityIdentifier("tab.\(i)")
-                    .accessibilityAddTraits(on ? .isSelected : [])
                 }
+                .padding(6)
+                .liquidGlass(corner: 34, interactive: true)
+                Spacer()
             }
-            .padding(6)
-            .dsBar(28)
-            Spacer()
         }
         .frame(width: 84)
         .padding(.vertical, 16)
         .padding(.leading, 8)
+    }
+
+    private func pick(_ i: Int) {
+        if i == selection { onReselect(i) } else { withAnimation(DS.select) { selection = i } }
     }
 }

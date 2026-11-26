@@ -1,5 +1,6 @@
 import SwiftUI
 
+/// Round Liquid Glass button floating over video (40 pt glass, 44 pt hit area).
 struct PlayerIconButton: View {
     let symbol: String
     let label: String
@@ -8,95 +9,97 @@ struct PlayerIconButton: View {
 
     var body: some View {
         Button(action: action) {
-            // Redesign: 40 pt glass circle (rgba(20,20,24,.42) + blur 16, white 14 % hairline) in a 44 pt hit area.
             Image(systemName: symbol)
                 .font(.system(size: 17, weight: .medium))
                 .foregroundStyle(tint)
                 .frame(width: 40, height: 40)
-                .background { Circle().fill(.ultraThinMaterial).overlay(Circle().fill(.black.opacity(0.42))) }
-                .overlay { Circle().strokeBorder(.white.opacity(0.14), lineWidth: 0.5) }
-                .environment(\.colorScheme, .dark)
+                .liquidGlass(Circle(), tone: .clear, interactive: true, onMedia: true)
                 .frame(width: 44, height: 44)
                 .contentShape(Circle())
         }.buttonStyle(PressScale()).accessibilityLabel(label)
     }
 }
 
-struct PlayerCaption: View {
-    let title: String
-    let source: String
-    let episode: Int
-    let total: Int
-    var compact = false
-    /// Replaces "第N集 · 共M集" for single long videos (e.g. the 番号).
-    var detailLine: String? = nil
-
+/// One icon of a `PlayerIconCluster` (the cluster owns the glass).
+struct PlayerClusterIcon: View {
+    let symbol: String
+    let label: String
+    var tint: Color = .white
+    let action: () -> Void
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Text(source)
-                    .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(.white.opacity(0.12), in: Capsule())
-                    .overlay { Capsule().strokeBorder(.white.opacity(0.2)) }
-                Text(detailLine ?? "第\(episode)集 · 共\(total)集").monospacedDigit()
-            }
-            .font(.caption.weight(.medium)).foregroundStyle(.white.opacity(0.86))
-            Text(title)
-                .font(compact ? .headline : .title2.weight(.bold)).lineLimit(compact ? 1 : 2)
-                .foregroundStyle(.white)
-        }
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(tint)
+                .frame(width: 44, height: 40)
+                .contentShape(Rectangle())
+        }.buttonStyle(PressScale()).accessibilityLabel(label)
     }
 }
 
-struct PlayerOptionsSheet<Option: Hashable>: View {
-    let title: String
-    let options: [Option]
-    let selected: Option?
-    let label: (Option) -> String
-    let onSelect: (Option) -> Void
-
+/// Neighbouring icon buttons share one glass capsule, like a system toolbar group.
+struct PlayerIconCluster<Content: View>: View {
+    @ViewBuilder var content: Content
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                Text(title).font(.title3.bold())
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 10) {
-                    ForEach(options, id: \.self) { option in
-                        Button { onSelect(option) } label: {
-                            Text(label(option)).font(.subheadline.weight(.semibold))
-                                .frame(maxWidth: .infinity, minHeight: 44)
-                                .background(option == selected ? STVTheme.accent.opacity(0.16) : STVTheme.glass,
-                                            in: RoundedRectangle(cornerRadius: 10))
-                                .foregroundStyle(option == selected ? STVTheme.accent : STVTheme.text)
-                        }.buttonStyle(.plain)
-                        .accessibilityAddTraits(option == selected ? .isSelected : [])
-                    }
-                }
-            }.padding(20).padding(.top, 12)
-        }
-        .presentationDetents([.height(96 + CGFloat((options.count + 2) / 3) * 54), .large])
+        HStack(spacing: 0) { content }
+            .padding(.horizontal, 4)
+            .frame(height: 40)
+            .liquidGlassCapsule(tone: .clear, interactive: true, onMedia: true)
+            .frame(height: 44)
     }
 }
 
-/// Progress bar (design v3): full-width 3 pt track — played white, buffered white 40 %, rest white 22 % —
-/// with a 4×16 bar knob. Dragging grows it to 8 pt with a 20 pt round knob and a bubble (thumbnail when the
-/// asset allows it + "t / d" + blue ±delta). Drag or tap anywhere; seek happens on release.
+/// Small glass capsule with text (收起 / 展开选集 / 跳过片头 / notices).
+struct PlayerGlassPill: View {
+    let title: String
+    var symbol: String? = nil
+    var trailing: String? = nil
+    var height: CGFloat = 34
+    var body: some View {
+        HStack(spacing: 5) {
+            if let symbol { Image(systemName: symbol).font(.system(size: 12, weight: .semibold)) }
+            Text(title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+            if let trailing { Image(systemName: trailing).font(.system(size: 9, weight: .bold)) }
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 13).frame(height: height)
+        .liquidGlassCapsule(tone: .clear, interactive: true, onMedia: true)
+        .contentShape(Capsule())
+    }
+}
+
+// MARK: - Progress
+
+/// Progress bar: full-width track (played white, buffered white 40 %, rest white 22 %) with a round knob. Dragging
+/// grows it and shows a bubble (thumbnail when the asset allows it + "t / d" + ±delta). Drag or tap anywhere; the seek
+/// happens on release. Observes the clock only: nothing else redraws while time moves.
 struct PlayerProgressBar: View {
     let co: PlaybackCoordinator
+    @ObservedObject private var clock: PlaybackClock
     @Binding var scrubbing: Bool
-    var onInteract: () -> Void = {}
+    var onInteract: () -> Void
     /// Non-interactive hairline shown when the chrome is hidden.
-    var mini = false
+    var mini: Bool
     @State private var drag: Double?
     @State private var dragStart: Double = 0
     @State private var thumb: UIImage?
 
+    init(co: PlaybackCoordinator, scrubbing: Binding<Bool>, onInteract: @escaping () -> Void = {}, mini: Bool = false) {
+        self.co = co
+        _clock = ObservedObject(wrappedValue: co.clock)
+        _scrubbing = scrubbing
+        self.onInteract = onInteract
+        self.mini = mini
+    }
+
     private static let thin: CGFloat = 4, thick: CGFloat = 8, miniH: CGFloat = 2
 
     var body: some View {
-        let duration = max(0, co.duration)
-        let played = duration > 0 ? min(1, max(0, co.time / duration)) : 0
+        let sample = clock.sample
+        let duration = max(0, sample.duration)
+        let played = sample.fraction
         let shown = drag ?? played
-        let buffered = duration > 0 ? min(1, max(shown, co.bufferedUntil / duration)) : 0
+        let buffered = duration > 0 ? min(1, max(shown, sample.bufferedUntil / duration)) : 0
         let h = mini ? Self.miniH : (drag != nil ? Self.thick : Self.thin)
         GeometryReader { g in
             let w = g.size.width
@@ -108,12 +111,10 @@ struct PlayerProgressBar: View {
             .frame(height: h)
             .overlay(alignment: .leading) {
                 if !mini {
-                    Group {
-                        if drag != nil { Circle().fill(.white).frame(width: 20, height: 20) }
-                        else { Circle().fill(.white).frame(width: 14, height: 14) }
-                    }
-                    .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
-                    .offset(x: w * shown - (drag != nil ? 10 : 7))
+                    let knob: CGFloat = drag != nil ? 20 : 14
+                    Circle().fill(.white).frame(width: knob, height: knob)
+                        .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+                        .offset(x: w * shown - knob / 2)
                 }
             }
             .frame(maxHeight: .infinity)
@@ -134,13 +135,13 @@ struct PlayerProgressBar: View {
                         UISelectionFeedbackGenerator().selectionChanged()
                     }
                     drag = min(1, max(0, v.location.x / max(1, w)))
-                    co.scrubPreview = (drag ?? 0) * duration
+                    clock.scrubPreview = (drag ?? 0) * duration
                     onInteract()
                 }
                 .onEnded { _ in
                     if let f = drag { co.seek(fraction: f) }
                     withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) { drag = nil }
-                    co.scrubPreview = nil
+                    clock.scrubPreview = nil
                     scrubbing = false
                     onInteract()
                 }
@@ -152,16 +153,17 @@ struct PlayerProgressBar: View {
                 }))
         }
         .frame(height: mini ? Self.miniH : 22)
-        .task(id: drag.map { Int($0 * max(1, co.duration) / PlayerThumbnailer.bucket) }) {
-            guard let f = drag, co.duration > 0, co.thumbnails.available else { return }
-            if let c = co.thumbnails.cached(at: f * co.duration) { thumb = c; return }
+        .task(id: drag.map { Int($0 * max(1, clock.sample.duration) / PlayerThumbnailer.bucket) }) {
+            guard let f = drag, clock.sample.duration > 0, co.thumbnails.available else { return }
+            let t = f * clock.sample.duration
+            if let c = co.thumbnails.cached(at: t) { thumb = c; return }
             try? await Task.sleep(for: .milliseconds(60))
-            if let img = await co.thumbnails.image(at: f * co.duration), drag != nil { thumb = img }
+            if let img = await co.thumbnails.image(at: t), drag != nil { thumb = img }
         }
         #if DEBUG
         .task(id: co.scrubDemo) {   // screenshots only: `STV_SCRUB_DEMO=0.62` freezes the dragging look (no seek)
             if !mini, let f = co.scrubDemo {
-                dragStart = 0.2; drag = f; scrubbing = true; co.scrubPreview = f * co.duration
+                dragStart = 0.2; drag = f; scrubbing = true; clock.scrubPreview = f * clock.sample.duration
             }
         }
         .task {
@@ -178,7 +180,7 @@ struct PlayerProgressBar: View {
         .accessibilityIdentifier(mini ? "player.progress.mini" : "player.progress")
         .accessibilityAdjustableAction { direction in
             let delta = direction == .increment ? 10.0 : -10.0
-            if duration > 0 { co.seek(fraction: max(0, min(1, (co.time + delta) / duration))) }
+            if duration > 0 { co.seek(fraction: max(0, min(1, (clock.sample.time + delta) / duration))) }
             onInteract()
         }
     }
@@ -203,53 +205,101 @@ struct PlayerProgressBar: View {
     }
 }
 
-/// Bottom chrome under the caption: progress bar, then one quiet row (play · time … actions).
-struct PlayerTimeline<Trailing: View>: View {
+/// Progress bar with its times. Portrait: times inline, 全屏 closes the row. Landscape: times inline only.
+struct PlayerTimelineV3: View {
     let co: PlaybackCoordinator
+    @ObservedObject private var clock: PlaybackClock
     @Binding var scrubbing: Bool
-    let onInteract: () -> Void
-    @ViewBuilder var trailing: Trailing
+    var onInteract: () -> Void
+    var onFullscreen: (() -> Void)?
+
+    init(co: PlaybackCoordinator, scrubbing: Binding<Bool>, onInteract: @escaping () -> Void = {}, onFullscreen: (() -> Void)? = nil) {
+        self.co = co
+        _clock = ObservedObject(wrappedValue: co.clock)
+        _scrubbing = scrubbing
+        self.onInteract = onInteract
+        self.onFullscreen = onFullscreen
+    }
 
     var body: some View {
-        VStack(spacing: 2) {
+        let t = clock.scrubPreview ?? clock.sample.time
+        HStack(spacing: 10) {
+            Text(Fmt.clock(Int(t))).accessibilityIdentifier("player.time")
             PlayerProgressBar(co: co, scrubbing: $scrubbing, onInteract: onInteract)
-            HStack(spacing: 4) {
-                Button { co.togglePause(); onInteract() } label: {
-                    Image(systemName: co.paused ? "play.fill" : "pause.fill")
-                        .font(.system(size: 17, weight: .semibold)).frame(width: 30, height: 36).contentShape(Rectangle())
-                }
-                .buttonStyle(.plain).accessibilityLabel(co.paused ? "播放" : "暂停").accessibilityIdentifier("player.playPause")
-                Text("\(Fmt.duration(Int(co.time))) / \(Fmt.duration(Int(max(0, co.duration))))")
-                    .font(.system(size: 12, weight: .medium).monospacedDigit()).foregroundStyle(.white.opacity(0.8))
-                    .lineLimit(1).fixedSize().layoutPriority(2)
-                    .accessibilityIdentifier("player.time")
-                Spacer(minLength: 4)
-                trailing
-            }
+            Text("−" + Fmt.clock(Int(max(0, clock.sample.duration - t)))).accessibilityIdentifier("player.remaining")
+            if let onFullscreen { PlayerFullscreenButton(action: onFullscreen).padding(.leading, 2) }
         }
-        .foregroundStyle(.white)
+        .font(.system(size: 12, weight: .medium).monospacedDigit())
+        .foregroundStyle(.white.opacity(0.8))
     }
 }
 
-/// Small glass pill used in the player's bottom row.
-struct PlayerPill: View {
-    let title: String
-    var symbol: String? = nil
-    var accent = false
+struct PlayerFullscreenButton: View {
     let action: () -> Void
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 4) {
-                if let symbol { Image(systemName: symbol).font(.system(size: 11, weight: .bold)) }
-                Text(title).lineLimit(1).fixedSize()
+            Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.white).frame(width: 30, height: 30).contentShape(Rectangle())
+        }
+        .buttonStyle(PressScale())
+        .accessibilityLabel("横屏全屏").accessibilityIdentifier("player.fullscreen")
+    }
+}
+
+/// 2 pt progress line while the chrome is hidden.
+struct PlayerCompactProgress: View {
+    @ObservedObject var clock: PlaybackClock
+    var body: some View {
+        GeometryReader { g in
+            ZStack(alignment: .leading) {
+                Color.white.opacity(0.18)
+                Color.white.opacity(0.6).frame(width: g.size.width * clock.sample.fraction)
             }
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(accent ? STVTheme.accent : .white)
-            .padding(.horizontal, 9).frame(height: 28)
-            .background(.white.opacity(accent ? 0.1 : 0.12), in: Capsule())
-            .overlay { Capsule().strokeBorder(.white.opacity(0.14)) }
-            .frame(minHeight: 40).contentShape(Rectangle())
-        }.buttonStyle(.plain)
+        }
+        .frame(height: 2)
+        .accessibilityIdentifier("player.compactProgress")
+    }
+}
+
+/// 跳过片头: shown while the playhead is inside the intro.
+struct PlayerSkipIntro: View {
+    @ObservedObject var clock: PlaybackClock
+    let introEnd: Double
+    let ready: Bool
+    let onSkip: () -> Void
+    var body: some View {
+        if ready, clock.sample.time < introEnd - 1, clock.sample.duration > introEnd + 30 {
+            Button(action: onSkip) { PlayerGlassPill(title: "跳过片头", trailing: "play.fill", height: 30) }
+                .buttonStyle(PressScale()).accessibilityIdentifier("player.skipIntro")
+        }
+    }
+}
+
+/// Cue text the host draws over the video.
+struct PlayerSubtitleOverlay: View {
+    @ObservedObject var telemetry: PlaybackTelemetry
+    let landscape: Bool
+    let bottom: CGFloat
+    var body: some View {
+        if let sub = telemetry.subtitle {
+            VStack {
+                Spacer()
+                Text(sub).font(.system(size: landscape ? 18 : 16, weight: .semibold)).foregroundStyle(.white)
+                    .multilineTextAlignment(.center).shadow(color: .black, radius: 2).shadow(color: .black.opacity(0.8), radius: 4)
+                    .padding(.horizontal, 24).padding(.bottom, bottom)
+                    .accessibilityIdentifier("player.subtitle")
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .allowsHitTesting(false)
+        }
+    }
+}
+
+/// Playback time as an accessibility value (novel media tests), refreshed by the clock without touching the page.
+struct PlayerClockValue: ViewModifier {
+    @ObservedObject var clock: PlaybackClock
+    func body(content: Content) -> some View {
+        content.accessibilityValue(String(format: "已播放 %.2f 秒", clock.sample.time))
     }
 }
 
@@ -293,16 +343,7 @@ struct PlayerSpeedHUD: View {
         }
         .padding(.horizontal, 22)
         .padding(.vertical, 16)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(
-                    LinearGradient(colors: [.white.opacity(0.3), .white.opacity(0.08)],
-                                   startPoint: .topLeading, endPoint: .bottomTrailing),
-                    lineWidth: 0.8
-                )
-        )
-        .shadow(color: .black.opacity(0.4), radius: 16, y: 6)
+        .liquidGlass(corner: 22, tone: .panel, onMedia: true)
     }
 }
 
@@ -320,11 +361,13 @@ struct PlayerChromeShotHost: View {
                 HStack {
                     PlayerIconButton(symbol: "chevron.left", label: "返回") {}
                     Spacer()
-                    PlayerIconButton(symbol: "heart", label: "收藏") {}
-                    PlayerIconButton(symbol: "pip.enter", label: "画中画") {}
+                    PlayerIconCluster {
+                        PlayerClusterIcon(symbol: "heart", label: "收藏") {}
+                        PlayerClusterIcon(symbol: "pip.enter", label: "画中画") {}
+                    }
                 }
                 Spacer()
-                PlayerCaption(title: "霸总的秘密助理", source: "红果短剧", episode: 3, total: 80)
+                Text("霸总的秘密助理").font(.title2.weight(.bold)).foregroundStyle(.white)
                 Capsule().fill(.white.opacity(0.2)).frame(height: 3)
                     .overlay(alignment: .leading) { Capsule().fill(STVTheme.accent).frame(width: 140, height: 3) }.padding(.vertical)
             }.padding(.horizontal, 20)
@@ -338,7 +381,6 @@ struct PlayerChromeShotHost: View {
         .persistentSystemOverlays(.hidden)
         .task {
             // Timed phases so an external script can screenshot each state.
-            // Stay on each phase long enough for simctl screenshots.
             try? await Task.sleep(nanoseconds: 1_500_000_000)
             phase = .speedHUD
             try? await Task.sleep(nanoseconds: 3_000_000_000)
