@@ -61,8 +61,8 @@ import app.iduanju.ui.theme.IdjThemeColors
 import kotlinx.coroutines.flow.first
 import kotlin.math.roundToInt
 
-/** The four tab pages: they cross-fade, everything else is pushed. */
-private val RootRoutes = setOf("home", "tvbox", "category", "profile")
+/** Dynamic root pages: 首页 + 我的, plus TVBox only after a TVBox config is imported. */
+private val RootRoutes = setOf("home", "tvbox", "profile")
 
 /** Lets deep rows (继续观看 · 全部) open a route without threading callbacks through every page. */
 val LocalNavigate = androidx.compose.runtime.staticCompositionLocalOf<(String) -> Unit> { {} }
@@ -82,12 +82,15 @@ fun RootScreen(initialRoute: String? = null) {
         kotlinx.coroutines.delay(1_500)
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { app.iduanju.ui.player.PlayerWarmup.run() }
     }
+    val hasTvbox = app.iduanju.IdjApp.instance.tvbox.repos.isNotEmpty()
+    val tabRoutes = remember(hasTvbox) { if (hasTvbox) listOf("home", "tvbox", "profile") else listOf("home", "profile") }
     var tab by remember { mutableIntStateOf(0) }
     var novelImmersive by remember { mutableStateOf(false) }
     val back = nav.currentBackStackEntryAsState().value
     val route = back?.destination?.route ?: "home"
-    LaunchedEffect(route) {
-        when (route) { "home" -> tab = 0; "tvbox" -> tab = 1; "category" -> tab = 2; "profile" -> tab = 3 }
+    LaunchedEffect(route, tabRoutes) {
+        val idx = tabRoutes.indexOf(route)
+        if (idx >= 0) tab = idx
     }
     val atRoot = route in RootRoutes
     /** Backdrop for the floating liquid-glass navigation bar: everything the NavHost draws. */
@@ -141,13 +144,13 @@ fun RootScreen(initialRoute: String? = null) {
                 }
             }
         }
-        val navItems = listOf<Pair<String, @Composable (Boolean) -> Unit>>(
-            "首页" to { on -> Icon(Icons.Filled.Home, null, Modifier.size(20.dp), tint = if (on) IdjThemeColors.text else dockLabel()) },
-            "TVBox" to { on -> Icon(Icons.Filled.LiveTv, null, Modifier.size(20.dp), tint = if (on) IdjThemeColors.text else dockLabel()) },
-            "找剧" to { on -> Icon(Icons.Filled.GridView, null, Modifier.size(20.dp), tint = if (on) IdjThemeColors.text else dockLabel()) },
-            "我的" to { on -> Icon(Icons.Filled.Person, null, Modifier.size(20.dp), tint = if (on) IdjThemeColors.text else dockLabel()) },
-        )
-        val tabRoutes = listOf("home", "tvbox", "category", "profile")
+        val navItems = remember(hasTvbox) {
+            buildList<Pair<String, @Composable (Boolean) -> Unit>> {
+                add("首页" to { on -> Icon(Icons.Filled.Home, null, Modifier.size(20.dp), tint = if (on) IdjThemeColors.text else dockLabel()) })
+                if (hasTvbox) add("TVBox" to { on -> Icon(Icons.Filled.LiveTv, null, Modifier.size(20.dp), tint = if (on) IdjThemeColors.text else dockLabel()) })
+                add("我的" to { on -> Icon(Icons.Filled.Person, null, Modifier.size(20.dp), tint = if (on) IdjThemeColors.text else dockLabel()) })
+            }
+        }
         val goHome: () -> Unit = {
             if (nav.currentBackStackEntry?.destination?.route != "home" && !nav.popBackStack("home", inclusive = false)) {
                 nav.navigate("home") {
@@ -241,6 +244,7 @@ fun RootScreen(initialRoute: String? = null) {
                         composable("hongguo-login") { app.iduanju.ui.profile.HongguoLoginScreen(onBack = { nav.popBackStack() }) }
                         composable("sources") { app.iduanju.ui.profile.SourcesScreen(onBack = { nav.popBackStack() }) }
                         composable("plugins") { app.iduanju.ui.profile.PluginsScreen(onBack = { nav.popBackStack() }) }
+                        composable("channels") { app.iduanju.tg.ChannelFeedPage(onPlay = { nav.navigate(Routes.player(it, 0)) }) }
                         composable("novel") { app.iduanju.novel.NovelScreen(onBack = { nav.popBackStack() }) }
                         composable("licenses") { app.iduanju.ui.profile.LicensesScreen(onBack = { nav.popBackStack() }) }
                         composable("actorRank") { app.iduanju.ui.profile.ActorRankScreen(onBack = { nav.popBackStack() }) }

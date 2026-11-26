@@ -122,9 +122,13 @@ fun MangaHomePage(onOpen: (String) -> Unit) {
     val c = IdjThemeColors
     val store = IdjApp.instance.manga
     val providers = store.providers
+    if (providers.isEmpty()) {
+        EmptyState("暂无漫画插件，请前往「我的 → 插件」导入漫画插件", Modifier.padding(top = 80.dp))
+        return
+    }
     var source by remember { mutableStateOf(providers[0].source) }
     LaunchedEffect(providers) { if (providers.none { it.source == source }) source = providers[0].source }
-    val p = store.provider(source)
+    val p = store.provider(source) ?: return
     var cat by remember(source) { mutableStateOf(p.categories[0]) }
     var query by remember { mutableStateOf("") }
     var searching by remember { mutableStateOf<String?>(null) }
@@ -166,7 +170,7 @@ fun MangaHomePage(onOpen: (String) -> Unit) {
                     Text("继续阅读", color = c.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         items(recent, key = { it.item.id }, contentType = { "recent" }) { r ->
-                            val headers = remember(r.item.source) { store.provider(r.item.source).imageHeaders }
+                            val headers = remember(r.item.source) { store.provider(r.item.source)?.imageHeaders ?: emptyMap() }
                             Column(Modifier.width(84.dp).pressClick(0.97f) { onOpen(store.put(r.item)) }) {
                                 Cover(r.item.cover, headers, Modifier.size(84.dp, 112.dp), 8, RecentSize)
                                 Text(r.item.title, color = c.text, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
@@ -207,7 +211,7 @@ fun MangaDetailScreen(id: String, onBack: () -> Unit, onRead: (String, Int, Int)
     val c = IdjThemeColors
     val store = IdjApp.instance.manga
     val item = store.cache[id] ?: store.progress[id]?.item ?: store.favorites.firstOrNull { it.id == id } ?: run { onBack(); return }
-    val p = remember(item.source) { store.provider(item.source) }
+    val p = remember(item.source) { store.provider(item.source) } ?: run { onBack(); return }
     var detail by remember { mutableStateOf<MangaDetail?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var asc by remember { mutableStateOf(true) }
@@ -325,7 +329,7 @@ object MangaReaderState { var detail: MangaDetail? = null }
 fun MangaReaderScreen(id: String, startIndex: Int, startPage: Int, onBack: () -> Unit) {
     val store = IdjApp.instance.manga
     val d = MangaReaderState.detail?.takeIf { it.item.id == id } ?: run { onBack(); return }
-    val p = remember(d.item.source) { store.provider(d.item.source) }
+    val p = remember(d.item.source) { store.provider(d.item.source) } ?: run { onBack(); return }
     val ctx = LocalContext.current
     val sp = remember { ctx.getSharedPreferences("idj", android.content.Context.MODE_PRIVATE) }
     var vertical by remember { mutableStateOf(sp.getBoolean("stv.manga.vertical", true)) }

@@ -92,9 +92,8 @@ object Catalog {
                 TVBoxId.isTVBox(sid) -> IdjApp.instance.tvbox.detail(sid).also { if (it.title.isEmpty()) it.title = peekTitle(sid); if (it.cover.isEmpty()) it.cover = peekCover(sid) }
                 isCMS(sid) -> MacCMS.detail(cmsSite(sid), sid)
                 PluginVideo.isPlugin(sid) -> friendly { plugin(sid).detail(sid) }
-                app.iduanju.core.huangguo.HuangguoClient.isHuangguo(sid) -> IdjApp.instance.huangguo.detail(sid)
                 TGVideo.isTG(sid) -> IdjApp.instance.tg.let { TGVideo.detail(it.client, sid, it.channel(sid.removePrefix("tg:").substringBefore(':'))) }
-                else -> IdjApp.instance.hongguo.detail(sid, web)
+                else -> throw ProviderException.invalid("请先在「我的 → 插件」导入对应片源插件")
             }
             if (loaded.episodes.isNotEmpty() && !isLive(sid)) detailCache[sid] = loaded to System.currentTimeMillis()
             rememberPreview(sid, loaded.title, loaded.cover)
@@ -124,8 +123,7 @@ object Catalog {
         TVBoxId.isTVBox(ep.vid) -> IdjApp.instance.tvbox.resolve(ep)
         isCMS(ep.vid) -> MacCMS.resolve(cmsSite(ep.vid), ep)
         PluginVideo.isPlugin(ep.vid) -> friendly { plugin(ep.vid).resolve(ep) }
-        app.iduanju.core.huangguo.HuangguoClient.isHuangguo(ep.vid) -> IdjApp.instance.huangguo.resolve(ep)
         TGVideo.isTG(ep.vid) -> TGVideo.resolve(IdjApp.instance.tg.client, ep)
-        else -> IdjApp.instance.hongguo.resolve(ep.vid)
+        else -> throw ProviderException.invalid("请先在「我的 → 插件」导入对应片源插件")
     }
 }

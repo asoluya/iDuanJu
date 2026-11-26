@@ -70,30 +70,16 @@ protocol SiteProvider: Sendable {
 }
 
 enum Sites {
-    static let builtinSites: [DramaSource] = [.jable, .missav, .hanime1, .supjav, .eporner, .xvideos, .xnxx, .pornhub, .youporn, .redtube, .hqporner]
-    /// Built-in sites + enabled video plugins + 采集站.
-    static var all: [DramaSource] { builtinSites + PluginStore.videoSources() + CMSStore.sources() }
+    static let builtinSites: [DramaSource] = []
+    /// Enabled video plugins + 采集站 (no built-in sources).
+    static var all: [DramaSource] { PluginStore.videoSources() + CMSStore.sources() }
     static func provider(_ s: DramaSource) -> SiteProvider? {
         if s.pluginID != nil { return JSVideoProvider(source: s) }
         if let k = s.cmsKey { return CMSStore.site(k).map { MacCMSProvider(source: s, site: $0) } }
         if let u = s.tvboxUID { return TVBoxProvider(source: s, uid: u) }
         if let u = s.tvboxLiveUID { return TVBoxLiveProvider(source: s, uid: u) }
-        let p: SiteProvider?
-        switch s {
-        case .jable: p = JableProvider()
-        case .missav: p = MissAVProvider()
-        case .hanime1: p = Hanime1Provider()
-        case .supjav: p = SupJavProvider()
-        case .eporner: p = EpornerProvider()
-        case .xvideos, .xnxx: p = XVProvider(source: s)
-        case .pornhub: p = PornhubProvider()
-        case .youporn: p = YouPornProvider()
-        case .redtube: p = RedTubeProvider()
-        case .hqporner: p = HQPornerProvider()
-        case .telegram: p = TGVideoProvider()
-        default: p = nil
-        }
-        return p
+        if s == .telegram { return TGVideoProvider() }
+        return nil
     }
 }
 

@@ -132,29 +132,20 @@ fun SearchScreen(
     var verify by vm.verify
     var searchGen by vm.gen
 
-    // Reactive multi-source list: [红果, 黄果 (when adultUnlocked)] + enabled CMS sites + enabled video/shortdrama plugins
+    // Reactive multi-source list: enabled CMS sites + enabled video/shortdrama plugins (no built-ins)
     val sources by remember { derivedStateOf {
         val adult = ia.cms.adultUnlocked
-        listOf("hongguo" to "红果") +
-            (if (adult) listOf("huangguo" to "黄果") else emptyList()) +
-            ia.cms.visibleSites.map { "cms:" + it.key to it.name } +
+        ia.cms.visibleSites.map { "cms:" + it.key to it.name } +
             ia.plugins.visible(adult).filter { it.type == "video" || it.type == "shortdrama" }.map { "plugin:" + it.id to it.name }
     } }
 
     var source by vm.source
     var pageNo by vm.pageNo
-    val currentSourceLabel = sources.firstOrNull { it.first == source }?.second ?: "红果"
+    val currentSourceLabel = sources.firstOrNull { it.first == source }?.second ?: sources.firstOrNull()?.second ?: "插件"
 
     suspend fun loadHot() {
         hotErr = null
-        try {
-            hot = withContext(Dispatchers.IO) { ia.hongguo.rank(HGRankSub.hotSearch, HGRankGenre.all).items.take(23) }
-            HotCache.hot = hot
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            hotErr = e.message ?: "加载失败"
-        }
+        hot = emptyList()
     }
     val uiScope = rememberCoroutineScope()
 
@@ -182,16 +173,15 @@ fun SearchScreen(
                 val src = source
                 val p = withContext(Dispatchers.IO) {
                     when {
-                        src == "hongguo" -> ia.hongguo.search(q, cursor = if (reset) null else cursor)
-                        src == "huangguo" -> app.iduanju.core.hongguo.HGPage(ia.huangguo.search(q), false)
                         src.startsWith("cms:") -> ia.cms.site(src.removePrefix("cms:"))?.let {
                             app.iduanju.core.cms.MacCMS.search(it, q, reqPage)
                         } ?: app.iduanju.core.hongguo.HGPage(emptyList(), false)
-                        else -> try {
+                        src.startsWith("plugin:") -> try {
                             ia.plugins.video(src.removePrefix("plugin:")).search(q, reqPage)
                         } catch (e: app.iduanju.core.plugin.PluginException) {
                             throw Exception(e.friendly)
                         }
+                        else -> app.iduanju.core.hongguo.HGPage(emptyList(), false)
                     }
                 }
                 if (myGen != searchGen) return@launch
@@ -215,10 +205,10 @@ fun SearchScreen(
 
     LaunchedEffect(sources) {
         if (sources.none { it.first == source }) {
-            source = "hongguo"
+            source = sources.firstOrNull()?.first ?: ""
             cursor = null
             items.clear()
-            if (submitted.isNotEmpty()) loadMore(true)
+            if (submitted.isNotEmpty() && source.isNotEmpty()) loadMore(true)
         }
     }
 

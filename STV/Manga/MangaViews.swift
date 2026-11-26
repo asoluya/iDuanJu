@@ -3,7 +3,7 @@ import SwiftUI
 /// 漫画 home: source switch, category chips, cover grid, search, 继续阅读 / 收藏.
 struct MangaHomeView: View {
     var embedded = false
-    @State private var source: MangaSourceID = .baozi
+    @State private var source: MangaSourceID = MangaSourceID.allCases.first ?? .plugin("none")
     @State private var category: MangaCategory?
     @State private var items: [MangaItem] = []
     @State private var page = 1
@@ -24,6 +24,9 @@ struct MangaHomeView: View {
 
     var body: some View {
         let list = ScrollView {
+            if sources.isEmpty {
+                DSEmptyState("暂无漫画插件", systemImage: "book.closed", message: "请前往「我的 → 插件」导入漫画插件。").padding(.top, 56)
+            } else {
             VStack(alignment: .leading, spacing: 14) {
                 if embedded { sourceRow }
                 SearchField(text: $query, placeholder: "搜索\(source.label)", onSubmit: { searching = query.isEmpty ? nil : query; reload() },
@@ -51,14 +54,21 @@ struct MangaHomeView: View {
             }
             .padding(.top, 4).padding(.bottom, 24)
             .compatScrollContent()
+            }
         }
         .scrollIndicators(.hidden)
-        .refreshable { await load(more: false) }
+        .refreshable { if !sources.isEmpty { await load(more: false) } }
         Group {
             if embedded { list.homePageInset() }
             else { list.liquidTopBar { VStack(spacing: 0) { MangaNavBar(); sourceRow.padding(.bottom, 8) } }.background(STVTheme.bg.ignoresSafeArea()).toolbar(.hidden, for: .navigationBar) }
         }
-        .task(id: "\(source.rawValue)|\(category?.id ?? "")") { await load(more: false) }
+        .task(id: "\(source.rawValue)|\(category?.id ?? "")") {
+            sources = Self.visibleSources()
+            if !sources.isEmpty {
+                if !sources.contains(source), let first = sources.first { source = first }
+                await load(more: false)
+            }
+        }
         .onAppear { sources = Self.visibleSources() }
         .onReceive(PluginStore.shared.objectWillChange.receive(on: DispatchQueue.main)) { _ in refreshSources() }
         .onReceive(SourceGate.shared.objectWillChange.receive(on: DispatchQueue.main)) { _ in refreshSources() }
@@ -74,7 +84,7 @@ struct MangaHomeView: View {
     private func refreshSources() {
         let now = Self.visibleSources()
         if now != sources { sources = now }
-        if !now.contains(source) { category = nil; source = .baozi }
+        if !now.contains(source), let first = now.first { category = nil; source = first }
     }
 
     private var sourceRow: some View {

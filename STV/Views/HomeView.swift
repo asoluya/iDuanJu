@@ -66,7 +66,11 @@ enum HomeSource: Hashable, Identifiable {
             if let k = src.cmsKey, let s = CMSStore.site(k), s.origin == "TVBox" || s.origin.hasPrefix("TVBox") { return false }
             return true
         }
-        return [.hongguo] + (g.showHuangguo ? [.huangguo] : []) + [.ai] + nonTVBoxSites.map { .site($0) } + [.channels, .manga, .novel]
+        var out: [HomeSource] = nonTVBoxSites.map { .site($0) }
+        if !TGStore.shared.visibleChannels.isEmpty { out.append(.channels) }
+        if MangaSourceID.allCases.contains(where: { !$0.isAdult || g.showAdultManga }) { out.append(.manga) }
+        if !NovelStore.shared.books.isEmpty || !LegadoSourceStore.shared.sources.isEmpty { out.append(.novel) }
+        return out
     }
 }
 
@@ -215,43 +219,37 @@ struct HomeView: View {
     private var pinned: Bool { scrolled[source] ?? false }
 
     init() {
-        let e = ProcessInfo.processInfo.environment["STV_HOME_TAB"] ?? ""
-        var src = HomeSource.hongguo, sub: [HomeSource: HomeTab] = [:]
-        if e == "actorRank" { sub[.hongguo] = .actorRank }
-        #if DEBUG
-        if let s = DramaSource(rawValue: e), s.isLongVideo { src = .site(s) }
-        if e == "huangguo" { src = .huangguo }
-        if e == "ai" { src = .ai }
-        if e == "channels" { src = .channels }
-        if e == "manga" { src = .manga }
-        if e == "novel" { src = .novel }
-        #endif
-        _source = State(initialValue: src)
-        _subs = State(initialValue: sub)
+        let initial = HomeSource.all.first ?? .channels
+        _source = State(initialValue: initial)
+        _subs = State(initialValue: [:])
     }
 
     var body: some View {
-        TabView(selection: $source) {
-            ForEach(sources) { s in
-                // `Binding(get:)` reads eagerly, and 频道 / 漫画 / 小说 have no sub boards.
-                HomePage(source: s, tab: Binding(get: { subs[s] ?? s.subs.first ?? .hongguo(.all) }, set: { subs[s] = $0 }))
-                    .environment(\.homeHeader, HomeHeader(active: true, rest: rest, pagerTop: safeSpan?.top ?? 0, tabBar: bottomInset - indicator, onScrolled: { v in if scrolled[s] != v { scrolled[s] = v } }))
-                    .tag(s)
+        Group {
+            if sources.isEmpty {
+                emptyShellView
+            } else {
+                TabView(selection: $source) {
+                    ForEach(sources) { s in
+                        // `Binding(get:)` reads eagerly, and 频道 / 漫画 / 小说 have no sub boards.
+                        HomePage(source: s, tab: Binding(get: { subs[s] ?? s.subs.first ?? .hongguo(.all) }, set: { subs[s] = $0 }))
+                            .environment(\.homeHeader, HomeHeader(active: true, rest: rest, pagerTop: safeSpan?.top ?? 0, tabBar: bottomInset - indicator, onScrolled: { v in if scrolled[s] != v { scrolled[s] = v } }))
+                            .tag(s)
+                    }
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .overlay(alignment: .bottom) {
+                    if bottomInset > indicator {
+                        LinearGradient(colors: [STVTheme.bg.opacity(0), STVTheme.bg], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 36).allowsHitTesting(false)
+                    }
+                }
+                .padding(.bottom, indicator)
+                .ignoresSafeArea(.container, edges: .bottom)
+                .background { SpanReader(span: $safeSpan).ignoresSafeArea(.keyboard) }
+                .overlay(alignment: .top) { header }
             }
         }
-        .tabViewStyle(.page(indexDisplayMode: .never))
-        // Pages run under the floating tab bar and dissolve behind its lower edge. The pager stops at the home indicator:
-        // iOS 26 centres pages in the UIKit safe region, so overlapping the indicator lifts every page by half its inset.
-        .overlay(alignment: .bottom) {
-            if bottomInset > indicator {
-                LinearGradient(colors: [STVTheme.bg.opacity(0), STVTheme.bg], startPoint: .top, endPoint: .bottom)
-                    .frame(height: 36).allowsHitTesting(false)
-            }
-        }
-        .padding(.bottom, indicator)
-        .ignoresSafeArea(.container, edges: .bottom)
-        .background { SpanReader(span: $safeSpan).ignoresSafeArea(.keyboard) }
-        .overlay(alignment: .top) { header }
         .dsAmbient(visible: !pinned)
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $showChannels) { channelPanel }
@@ -260,31 +258,54 @@ struct HomeView: View {
             try? await Task.sleep(nanoseconds: 1_200_000_000)
             await NovelStore.prewarm()
             await LegadoSourceStore.prewarm()
+            refreshSources()
         }
         .onAppear { refreshSources() }
     }
 
+    private var emptyShellView: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                DSEmptyState(
+                    "暂无已注入的插件或片源",
+                    systemImage: "puzzlepiece.extension",
+                    message: "本应用仅提供播放与阅读框架，不含任何内置片源。导入 .idjplugin 插件、订阅或配置后，对应功能会自动出现。"
+                )
+                .padding(.top, 56)
+                VStack(spacing: 12) {
+                    NavigationLink(value: Route.plugins) {
+                        PillButtonLabel(title: "导入插件 / 订阅")
+                    }
+                    .buttonStyle(PressScale())
+                    HStack(spacing: 12) {
+                        NavigationLink(value: Route.tvboxConfig) { MiniButtonLabel(title: "导入 TVBox") }
+                        NavigationLink(value: Route.novel) { MiniButtonLabel(title: "导入小说/书源") }
+                        NavigationLink(value: Route.channels) { MiniButtonLabel(title: "添加频道") }
+                    }
+                    .buttonStyle(PressScale())
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 32)
+        }
+        .background(STVTheme.bg.ignoresSafeArea())
+    }
+
     @MainActor private static let sourceChanges = SourceGate.shared.objectWillChange
         .merge(with: CMSStore.shared.objectWillChange, PluginStore.shared.objectWillChange)
+        .merge(with: TGStore.shared.objectWillChange, NovelStore.shared.objectWillChange, LegadoSourceStore.shared.objectWillChange)
         .debounce(for: .milliseconds(60), scheduler: DispatchQueue.main)
 
     private func refreshSources() {
         let now = HomeSource.all
         if now != sources { sources = now }
-        if !now.contains(source) { source = .hongguo }
+        if !now.contains(source), let first = now.first { source = first }
     }
 
     /// Use the currently visible home source as the initial search provider.
-    private var activeSearchSource: DramaSource {
-        switch source {
-        case .hongguo: return .hongguo
-        case .huangguo: return .huangguo
-        case .site(let site): return site
-        case .ai:
-            if case .some(.huangguo(.ai)) = subs[.ai] { return .huangguo }
-            return .hongguo
-        case .channels, .manga, .novel: return .hongguo
-        }
+    private var activeSearchSource: DramaSource? {
+        if case .site(let site) = source { return site }
+        return SourceGate.shared.searchSources.first
     }
 
     // MARK: Header (search + filter, source bar)
@@ -293,7 +314,7 @@ struct HomeView: View {
         VStack(spacing: 0) {
             LiquidGlassGroup(spacing: 10) {
                 HStack(spacing: 10) {
-                    NavigationLink(value: Route.searchFromSource(activeSearchSource)) {
+                    NavigationLink(value: activeSearchSource.map(Route.searchFromSource) ?? Route.search) {
                         DSSearchBarLabel()
                             .padding(.horizontal, 16).frame(height: 46).contentShape(Capsule())
                             .liquidGlassCapsule(interactive: true)

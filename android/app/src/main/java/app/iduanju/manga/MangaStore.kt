@@ -15,16 +15,16 @@ class MangaStore(ctx: Context) {
     val progress = mutableStateMapOf<String, Progress>()
     /** Items handed between screens by id (nav routes carry only the id). */
     val cache = HashMap<String, MangaItem>()
-    private val builtins: List<MangaProvider> = listOf(BaoziProvider(), MangaDexProvider())
+    private val builtins: List<MangaProvider> = emptyList()
     private val pluginProviders = HashMap<String, MangaProvider>()
-    /** Built-ins + enabled comic plugins (adult ones only behind the adult gate, iOS SourceGate.showAdultManga). */
+    /** Enabled comic plugins only (no built-in manga sources). */
     val providers: List<MangaProvider> get() {
         val app = app.iduanju.IdjApp.instance
         return builtins + app.plugins.visible(app.cms.adultUnlocked).filter { it.type == "comic" }.mapNotNull { p ->
             pluginProviders["p." + p.id] ?: runCatching { app.plugins.comic(p.id) }.getOrNull()?.also { pluginProviders["p." + p.id] = it }
         }
     }
-    fun provider(source: String) = providers.firstOrNull { it.source == source } ?: builtins[0]
+    fun provider(source: String): MangaProvider? = providers.firstOrNull { it.source == source } ?: providers.firstOrNull()
 
     init {
         runCatching { val a = JSONArray(sp.getString("stv.manga.favorites", "[]")); for (i in 0 until a.length()) favorites.add(MangaItem.from(a.getJSONObject(i))) }

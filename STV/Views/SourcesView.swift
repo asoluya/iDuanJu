@@ -17,27 +17,24 @@ struct SourcesView: View {
                     DSEmptyState("18+ 片源已锁定", systemImage: "lock.fill", message: "验证后才显示隐藏的片源。", actionTitle: "用 Face ID 解锁") { Task { await gate.unlock() } }
                         .padding(.top, 60)
                 } else {
-                    DSSection("内置", separatorInset: 58) {
-                        DSRow(title: DramaSource.hongguo.label, icon: "play.rectangle.on.rectangle") { DSStatus(text: "内置", tone: .muted) }
-                    }
-                    DSSection("18+ 片源（默认隐藏）", separatorInset: 58) {
-                        DSToggleRow(DramaSource.huangguo.label, isOn: Binding(get: { gate.huangguo }, set: { gate.setHuangguo($0) }), icon: "film.stack",
-                                    subtitle: "18+ · 视频站 / App 源 / AI 站；开启后出现在「发现」「搜索」和 AI剧")
-                            .accessibilityIdentifier("sources.huangguo")
-                        ForEach(Sites.all.filter(\.isAdult)) { s in siteRow(s) }
-                    }
                     DSSection("插件与采集站", separatorInset: 58) {
-                        DSLinkRow("插件管理", route: Route.plugins, icon: "puzzlepiece.extension", subtitle: "JS 插件、订阅、苹果 CMS 采集站；成人插件在这里解锁后才显示")
+                        DSLinkRow("插件管理", route: Route.plugins, icon: "puzzlepiece.extension", subtitle: "导入 .idjplugin 插件、订阅、苹果 CMS 采集站；成人插件在这里解锁后才显示")
                             .accessibilityIdentifier("sources.plugins")
                     }
+                    let adultSites = Sites.all.filter(\.isAdult)
+                    if !adultSites.isEmpty {
+                        DSSection("18+ 片源（默认隐藏）", separatorInset: 58) {
+                            ForEach(adultSites) { s in siteRow(s) }
+                        }
+                    }
                     DSSection("频道与漫画（默认隐藏）",
-                              footer: "开启后，该站会出现在「发现」顶部标签和「搜索」结果来源里；关闭后收藏、观看记录仍保留在本机，只是不再显示。所有请求由本机直连站点，部分站点需要先在内置浏览器完成一次 Cloudflare 验证。",
+                              footer: "开启后，已导入的成人插件/频道才会显示；关闭后收藏、观看记录仍保留在本机，只是不再显示。",
                               separatorInset: 58) {
                         DSToggleRow("成人 Telegram 频道", isOn: Binding(get: { gate.adultChannels }, set: { gate.setAdultChannels($0) }), icon: "paperplane",
-                                    subtitle: "预置 @bhg1232 / @NudefilmsTV 及你标记为成人的频道；开启后才出现在「频道」")
+                                    subtitle: "控制你标记为成人的 Telegram 频道")
                             .accessibilityIdentifier("sources.adultChannels")
                         DSToggleRow("成人漫画源", isOn: Binding(get: { gate.adultManga }, set: { gate.setAdultManga($0) }), icon: "book.closed",
-                                    subtitle: "控制成人漫画插件（内置推荐：Manga18fx / Komikindo / 18comic）；插件结果一律过滤未成年人相关标签")
+                                    subtitle: "控制你自行导入的成人漫画插件；插件结果一律过滤未成年人相关标签")
                     }
                     playback
                     privacy

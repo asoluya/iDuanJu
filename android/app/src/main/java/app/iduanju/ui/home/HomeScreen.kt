@@ -158,17 +158,19 @@ fun formatCount(n: Long) = HomeFmt.count(n)
 private data class HomePageRef(val key: String, val label: String, val target: Any)
 
 private fun homePages(): List<HomePageRef> {
-    // iOS HomeSource.all: [红果, 黄果, AI剧] + visible sites (采集站 / plugins) + [频道, 漫画, 小说]
+    // Pure plugin-driven shell: only show tabs for installed plugins / CMS / user-imported content.
     val app = IdjApp.instance
     val adult = app.cms.adultUnlocked
     fun built(s: HomeSource) = HomePageRef(s.name, s.label, s)
+    val novelPrefs = app.getSharedPreferences("novel", android.content.Context.MODE_PRIVATE)
+    val hasNovel = (novelPrefs.getString("sources", "[]") ?: "[]").length > 2 ||
+        (novelPrefs.getString("books", "[]") ?: "[]").length > 2
     return buildList {
-        add(built(HomeSource.hongguo))
-        if (adult) add(built(HomeSource.huangguo))
-        add(built(HomeSource.ai))
         app.cms.visibleSites.filterNot { it.origin.equals("TVBox", ignoreCase = true) || it.origin.startsWith("TVBox") }.forEach { add(HomePageRef("cms:" + it.key, it.name, it)) }
         app.plugins.visible(adult).filter { it.type == "video" || it.type == "shortdrama" }.forEach { add(HomePageRef("plugin:" + it.id, it.name, it)) }
-        add(built(HomeSource.channels)); add(built(HomeSource.manga)); add(built(HomeSource.novel))
+        if (app.tg.visible(adult).isNotEmpty()) add(built(HomeSource.channels))
+        if (app.manga.providers.isNotEmpty()) add(built(HomeSource.manga))
+        if (hasNovel) add(built(HomeSource.novel))
     }
 }
 
@@ -194,6 +196,31 @@ internal fun rootBottomInset(): Dp =
 fun HomeScreen(onOpenDetail: (String) -> Unit, onSearch: () -> Unit = {}, onPlay: (String) -> Unit = {}, onOpenManga: (String) -> Unit = {}, onImmersiveChanged: (Boolean) -> Unit = {}) {
     val c = IdjThemeColors
     val pages by remember { derivedStateOf { homePages() } }
+    if (pages.isEmpty()) {
+        val go = app.iduanju.ui.LocalNavigate.current
+        LaunchedEffect(Unit) { onImmersiveChanged(false) }
+        Box(Modifier.fillMaxSize().background(c.bg).statusBarsPadding().padding(bottom = rootBottomInset()), contentAlignment = Alignment.Center) {
+            Column(
+                Modifier.padding(horizontal = 28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Text("暂无已注入的插件或片源", color = c.text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "本应用仅提供播放与阅读框架，不含任何内置片源。导入 .idjplugin 插件、订阅或配置后，对应功能会自动出现。",
+                    color = c.secondary, fontSize = 14.sp, lineHeight = 20.sp, textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(4.dp))
+                GlassButton("导入插件 / 订阅", onClick = { go("plugins") })
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    GlassButton("导入 TVBox", tone = ButtonTone.Glass, size = ButtonSize.Small, onClick = { go("tvbox/config") })
+                    GlassButton("小说/书源", tone = ButtonTone.Glass, size = ButtonSize.Small, onClick = { go("novel") })
+                    GlassButton("添加频道", tone = ButtonTone.Glass, size = ButtonSize.Small, onClick = { go("channels") })
+                }
+            }
+        }
+        return
+    }
     val pager = rememberPagerState { pages.size }
     LaunchedEffect(HomeJump.label, pages.size) {
         val label = HomeJump.label ?: return@LaunchedEffect

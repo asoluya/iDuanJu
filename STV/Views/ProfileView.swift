@@ -2,27 +2,22 @@ import SwiftUI
 
 struct ProfileView: View {
     @State private var message: String?
-    @State private var showHongguoLogin = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 Text("我的").dsFont(32, .heavy, relativeTo: .largeTitle).foregroundStyle(STVTheme.text).padding(.horizontal, 20)
                     .accessibilityAddTraits(.isHeader)
-                HongguoAccountCard(message: $message, login: $showHongguoLogin)
                 ProfileLibrary()
                 ProfileLinks()
                 DSSection("维护", separatorInset: 58) {
-                    maintenance("重置红果设备注册", "arrow.counterclockwise") { await HongguoClient.shared.resetDevice(); message = "已重置红果设备" }
-                    maintenance("重置黄果访客会话", "person.badge.key") { await HuangguoClient.shared.resetSession(); message = "已清除黄果会话" }
                     maintenance("清空封面缓存", "photo.stack") { await CoverStore.shared.clear(); message = "封面缓存已清空" }
                     maintenance("清空播放缓存", "trash") {
                         await Task.detached { try? FileManager.default.removeItem(at: EpisodePlaybackLoader.cacheDir) }.value
-                        await HongguoClient.shared.clearResolveCache()
                         message = "播放缓存已清空"
                     }
                 }
-                Text("所有数据由本机直连上游，观看记录和收藏只保存在本机。\n\(Self.versionText)")
+                Text("本应用仅提供播放与阅读框架，不含任何内置片源；观看记录和收藏只保存在本机。\n\(Self.versionText)")
                     .dsFont(12, relativeTo: .caption).foregroundStyle(STVTheme.tertiary).lineSpacing(3).padding(.horizontal, 20)
             }
             .padding(.top, 8).padding(.bottom, 24)
@@ -32,7 +27,6 @@ struct ProfileView: View {
         .dsStatusFade()
         .dsAmbient(cool: true)
         .toolbar(.hidden, for: .navigationBar)
-        .sheet(isPresented: $showHongguoLogin) { HongguoLoginView() }
         .dsToast($message, icon: "checkmark.circle.fill", bottom: 16)
     }
 
@@ -107,7 +101,6 @@ private struct ProfileLibrary: View {
         }
         DSSection(separatorInset: 58) {
             DSLinkRow("观看历史", route: Route.history, icon: "clock.arrow.circlepath", value: watching.isEmpty ? nil : "\(library.continueWatching.count)")
-            DSLinkRow("剧星榜", route: Route.actorRank, icon: "star.circle")
             DSLinkRow("我的收藏", route: Route.favorites, icon: "heart", value: "\(favorites.count)")
         }
     }
@@ -115,30 +108,40 @@ private struct ProfileLibrary: View {
 
 private struct ProfileLinks: View {
     @ObservedObject private var gate = SourceGate.shared
+    @ObservedObject private var plugins = PluginStore.shared
+    @ObservedObject private var tvbox = TVBoxStore.shared
     /// Counts of stores that load from disk: read after the first frame instead of while 我的 is being built.
     @State private var counts = Counts()
-    private struct Counts: Equatable { var channels: String?; var manga: String?; var downloads: String?; var plugins: String? }
+    private struct Counts: Equatable { var channels: String?; var manga: String?; var downloads: String?; var plugins: String?; var hasManga: Bool = false }
 
     var body: some View {
         Group {
-            DSSection(separatorInset: 58) {
+            DSSection("扩展与插件", separatorInset: 58) {
+                DSLinkRow("插件", route: Route.plugins, icon: "puzzlepiece.extension", value: counts.plugins)
+                DSLinkRow("TVBox 配置", route: Route.tvboxConfig, icon: "tv", value: tvbox.repos.isEmpty ? nil : "\(tvbox.repos.count) 个")
+                DSLinkRow("片源管理", route: Route.sources, icon: "square.stack.3d.down.right", value: gate.enabledCount > 0 ? "已启用 \(gate.enabledCount) 个" : nil)
+            }
+            DSSection("阅读与频道", separatorInset: 58) {
                 DSLinkRow("Telegram 频道", route: Route.channels, icon: "paperplane", value: counts.channels)
-                DSLinkRow("漫画", route: Route.mangaHome, icon: "book", value: counts.manga)
+                if counts.hasManga {
+                    DSLinkRow("漫画", route: Route.mangaHome, icon: "book", value: counts.manga)
+                }
+                DSLinkRow("小说", route: Route.novel, icon: "text.book.closed")
                 DSLinkRow("下载管理", route: Route.downloads, icon: "arrow.down.circle", value: counts.downloads)
             }
             DSSection(separatorInset: 58) {
-                DSLinkRow("片源管理", route: Route.sources, icon: "square.stack.3d.down.right", value: gate.enabledCount > 0 ? "已启用 \(gate.enabledCount) 个" : "红果 · 黄果")
-                DSLinkRow("插件", route: Route.plugins, icon: "puzzlepiece.extension", value: counts.plugins)
                 DSLinkRow("开源许可", route: Route.licenses, icon: "doc.text")
             }
         }
-        .task {
+        .task(id: plugins.revision) {
             await Task.yield()
-            let plugins = PluginStore.shared.visiblePlugins.count + CMSStore.shared.visibleSites.count
-            counts = Counts(channels: "\(TGStore.shared.visibleChannels.count) 个",
+            let count = plugins.visiblePlugins.count + CMSStore.shared.visibleSites.count
+            let hasManga = MangaSourceID.allCases.contains { !$0.isAdult || gate.showAdultManga }
+            counts = Counts(channels: TGStore.shared.visibleChannels.isEmpty ? nil : "\(TGStore.shared.visibleChannels.count) 个",
                             manga: MangaStore.shared.favorites.isEmpty ? nil : "收藏 \(MangaStore.shared.favorites.count)",
                             downloads: TGDownloads.shared.visible.isEmpty ? nil : "\(TGDownloads.shared.visible.count)",
-                            plugins: plugins > 0 ? "\(plugins) 个" : nil)
+                            plugins: count > 0 ? "\(count) 个" : nil,
+                            hasManga: hasManga)
         }
     }
 }

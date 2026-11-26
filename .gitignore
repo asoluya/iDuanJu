@@ -23,3 +23,17 @@ xcuserdata/
 # CPython runtime unpacked by scripts/fetch-ios-python.sh
 /third_party/python-ios/
 /third_party/python-ios.tmp.*
+
+# Personal novel outline & review files (never commit)
+异常从四角游戏开始_世界观设定大纲.md
+*世界观设定大纲*.md
+review_notes
+review_notes/
+review_notes.*
+review_app
+review_app/
+
+# Local plugins & plugin sources (packaged locally, never committed)
+/PluginsSrc/
+/STV/Resources/Plugins/
+/local-plugins/

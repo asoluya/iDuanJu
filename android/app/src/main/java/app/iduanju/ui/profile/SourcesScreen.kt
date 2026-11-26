@@ -39,22 +39,13 @@ fun SourcesScreen(onBack: () -> Unit) {
     val adult = ia.cms.adultUnlocked
 
     SettingsPage("片源管理", onBack) {
-        Group("内置") {
-            BuiltinRow("红果短剧", ProfileIcons.play)
+        Group("插件与采集站") {
+            LinkRow("插件管理", ProfileIcons.plugin, sub = "导入 .idjplugin 插件、订阅、苹果 CMS 采集站；成人插件在这里解锁后才显示") { go("plugins") }
         }
-        Group("成人内容（默认隐藏）", footer = "开启后黄果、标记为成人的采集站 / 插件 / Telegram 频道 / 漫画插件才会出现在首页、搜索、频道与漫画；所有结果一律过滤未成年人与非自愿题材。") {
-            SwitchRow("显示成人片源", ProfileIcons.film, "黄果短剧、成人采集站 / 插件 / 频道 / 漫画 · 仅限年满 18 周岁", adult) {
+        Group("成人内容（默认隐藏）", footer = "开启后，你自行导入的成人采集站 / 插件 / Telegram 频道 / 漫画插件才会显示；所有结果一律过滤未成年人与非自愿题材。") {
+            SwitchRow("显示成人片源", ProfileIcons.film, "控制已导入的成人插件 / 频道 / 漫画 · 仅限年满 18 周岁", adult) {
                 if (it) confirmAdult = true else { ia.cms.adultUnlocked = false; message = "已隐藏成人片源" }
             }
-            if (adult) {
-                RowDivider()
-                val installedAdult = ia.plugins.plugins.count { it.adult }
-                LinkRow("内置成人视频与漫画插件", ProfileIcons.plugin, trailing = if (installedAdult > 0) "已装 $installedAdult 个" else "去安装",
-                    sub = "MissAV、Jable、91Porn、Hanime1 等内置推荐插件在「插件管理」一键安装") { go("plugins") }
-            }
-        }
-        Group("插件与采集站") {
-            LinkRow("插件管理", ProfileIcons.plugin, sub = "JS 插件、订阅、苹果 CMS 采集站；成人插件在这里解锁后才显示") { go("plugins") }
         }
         Group("播放设置") {
             SwitchRow("去广告", ProfileIcons.adblock, "去掉 HLS 片源里插播的广告片段（adjump、异域名短片段、重复片段）", adStrip) {
@@ -75,13 +66,12 @@ fun SourcesScreen(onBack: () -> Unit) {
                     onValueChangeFinished = { ia.settings.playbackCacheMB = cacheMB }, label = "播放缓存上限", valueText = { "${it.roundToInt()} MB" })
             }
         }
-        DeviceOverrideGroup()
         Note(message)
     }
     if (confirmAdult) GlassConfirm(
         onDismissRequest = { confirmAdult = false },
         title = "显示成人片源？",
-        message = "仅限年满 18 周岁的用户。开启后黄果与标记为成人的片源会出现在首页、搜索、频道与漫画；可随时在这里关闭。",
+        message = "仅限年满 18 周岁的用户。开启后你自行导入的成人插件、频道与漫画会显示；可随时在这里关闭。",
         confirmText = "我已年满 18 周岁",
         onConfirm = { ia.cms.adultUnlocked = true; confirmAdult = false; message = "已显示成人片源" },
     )

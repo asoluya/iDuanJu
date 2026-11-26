@@ -6,11 +6,8 @@ import Combine
 final class TGStore: ObservableObject {
     static let shared = TGStore()
 
-    /// Preset channels the user asked for. Both are adult → hidden until 片源管理 → 成人频道 is on.
-    static let presets: [TGChannel] = [
-        TGChannel(username: "bhg1232", title: "bhg1232", isAdult: true),
-        TGChannel(username: "NudefilmsTV", title: "NudefilmsTV", isAdult: true),
-    ]
+    /// No preset channels: user adds channels manually.
+    static let presets: [TGChannel] = []
 
     @Published private(set) var channels: [TGChannel] = []
     @Published private(set) var posts: [String: [TGPost]] = [:]

@@ -47,15 +47,16 @@ final class SourceGate: ObservableObject {
     func isVisible(_ s: DramaSource) -> Bool {
         // TVBox sites are switched on and off in their own config: only the adult lock applies here.
         if s.isTVBox { return !s.isAdult || unlocked }
-        return s == .huangguo ? showHuangguo : s.isBuiltin || (unlocked && enabled.contains(s))
+        if s == .hongguo || s == .huangguo { return false }
+        return (s.isDynamic && !s.isAdult) || (unlocked && enabled.contains(s))
     }
     /// Series-level check: Telegram videos from adult channels follow the adult-channel switch.
     func isVisible(_ s: HGSeries) -> Bool {
         guard s.source == .telegram else { return isVisible(s.source) }
         return !(s.tags.contains(TGVideoProvider.adultTag)) || showAdultChannels
     }
-    /// Sources offered in the search tab strip.
-    var searchSources: [DramaSource] { [.hongguo] + (showHuangguo ? [.huangguo] : []) + visibleSites }
+    /// Sources offered in the search tab strip (installed plugins & CMS only).
+    var searchSources: [DramaSource] { visibleSites }
 
     var showAdultChannels: Bool { unlocked && adultChannels }
     var showAdultManga: Bool { unlocked && adultManga }

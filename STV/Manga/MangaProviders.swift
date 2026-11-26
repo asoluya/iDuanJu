@@ -10,10 +10,10 @@ struct MangaSourceID: RawRepresentable, Codable, Hashable, Identifiable, Sendabl
     private init(_ raw: String) { rawValue = raw }
     static let baozi = MangaSourceID("baozi")
     static let mangadex = MangaSourceID("mangadex")
-    static let builtins: [MangaSourceID] = [.baozi, .mangadex]
+    static let builtins: [MangaSourceID] = []
     static func plugin(_ id: String) -> MangaSourceID { MangaSourceID("p." + id) }
-    /// Built-ins + enabled comic plugins.
-    static var allCases: [MangaSourceID] { builtins + PluginStore.comicSources() }
+    /// Enabled comic plugins only (no built-in manga sources).
+    static var allCases: [MangaSourceID] { PluginStore.comicSources() }
     var pluginID: String? { rawValue.hasPrefix("p.") ? String(rawValue.dropFirst(2)) : nil }
 
     var id: String { rawValue }

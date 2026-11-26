@@ -54,11 +54,8 @@ fun ProfileScreen(onOpenDetail: (String) -> Unit = {}) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     var message by remember { mutableStateOf<String?>(null) }
-    var confirmLogout by remember { mutableStateOf(false) }
     // Most rows sit far above the footer that shows the outcome, so it is also announced as a toast.
     val notify: (String) -> Unit = { message = it; GlassToast.show(it) }
-
-    LaunchedEffect(Unit) { ia.hgWebAccount.refreshProfile() }
 
     val watching by remember { derivedStateOf { lib.continueWatching.take(10) } }
     val favorites by remember {
@@ -74,9 +71,6 @@ fun ProfileScreen(onOpenDetail: (String) -> Unit = {}) {
     ) {
         item("title", "title") {
             Text("我的", color = c.text, fontWeight = FontWeight.Black, fontSize = 32.sp, modifier = Modifier.padding(horizontal = 16.dp).semantics { heading() })
-        }
-        item("account", "account") {
-            AccountCard(ia.hgWebAccount.profile, ia.hgWebAccount.lastSyncNote, { go("hongguo-login") }) { confirmLogout = true }
         }
         if (watching.isNotEmpty()) item("watching", "shelf") { ContinueShelf(watching, onOpenDetail, { go("library/history") }) { lib.removeProgress(it) } }
         item("favorites", "header") {
@@ -100,16 +94,30 @@ fun ProfileScreen(onOpenDetail: (String) -> Unit = {}) {
             GroupItem {
                 LinkRow("观看历史", ProfileIcons.history, trailing = lib.history.size.takeIf { it > 0 }?.toString()) { go("library/history") }
                 RowDivider()
-                LinkRow("剧星榜", ProfileIcons.star) { go("actorRank") }
-                RowDivider()
                 LinkRow("我的收藏", ProfileIcons.heart, trailing = "${lib.favorites.size}") { go("library/favorites") }
             }
         }
-        item("content", "group") {
-            GroupItem {
-                LinkRow("Telegram 频道", ProfileIcons.telegram, trailing = "${ia.tg.visible(ia.cms.adultUnlocked).size} 个") { go("home/channels") }
+        item("manage", "group") {
+            GroupItem("扩展与插件") {
+                val adult = ia.cms.adultUnlocked
+                val n = ia.plugins.plugins.count { !it.adult || adult } + ia.cms.sites.count { !it.adult || adult }
+                LinkRow("插件", ProfileIcons.plugin, trailing = n.takeIf { it > 0 }?.let { "$it 个" }) { go("plugins") }
                 RowDivider()
-                LinkRow("漫画", ProfileIcons.manga, trailing = ia.manga.favorites.size.takeIf { it > 0 }?.let { "收藏 $it" }) { go("home/manga") }
+                LinkRow("TVBox 配置", ProfileIcons.sources, trailing = ia.tvbox.repos.size.takeIf { it > 0 }?.let { "$it 个" }) { go("tvbox/config") }
+                RowDivider()
+                LinkRow("片源管理", ProfileIcons.sources) { go("sources") }
+            }
+        }
+        item("content", "group") {
+            GroupItem("阅读与频道") {
+                val tgCount = ia.tg.visible(ia.cms.adultUnlocked).size
+                LinkRow("Telegram 频道", ProfileIcons.telegram, trailing = tgCount.takeIf { it > 0 }?.let { "$it 个" }) {
+                    go(if (tgCount > 0) "home/channels" else "channels")
+                }
+                if (ia.manga.providers.isNotEmpty()) {
+                    RowDivider()
+                    LinkRow("漫画", ProfileIcons.manga, trailing = ia.manga.favorites.size.takeIf { it > 0 }?.let { "收藏 $it" }) { go("home/manga") }
+                }
                 RowDivider()
                 LinkRow("小说", ProfileIcons.manga, sub = "TXT、阅读书源、搜索与发现") { go("novel") }
                 RowDivider()
@@ -117,14 +125,8 @@ fun ProfileScreen(onOpenDetail: (String) -> Unit = {}) {
             }
         }
         item("look", "group") { GroupItem("外观") { AppearanceRows() } }
-        item("manage", "group") {
+        item("about", "group") {
             GroupItem {
-                val adult = ia.cms.adultUnlocked
-                LinkRow("片源管理", ProfileIcons.sources, trailing = if (adult) "红果 · 黄果" else "红果") { go("sources") }
-                RowDivider()
-                val n = ia.plugins.plugins.count { !it.adult || adult } + ia.cms.sites.count { !it.adult || adult }
-                LinkRow("插件", ProfileIcons.plugin, trailing = n.takeIf { it > 0 }?.let { "$it 个" }) { go("plugins") }
-                RowDivider()
                 LinkRow("开源许可", ProfileIcons.license) { go("licenses") }
                 RowDivider()
                 val up = ia.updater
@@ -135,12 +137,6 @@ fun ProfileScreen(onOpenDetail: (String) -> Unit = {}) {
         }
         item("maintenance", "group") {
             GroupItem {
-                ActRow("重置红果设备注册", ProfileIcons.reset, scope, notify) { withContext(Dispatchers.IO) { ia.hongguo.resetDevice() }; "已重置红果设备" }
-                RowDivider()
-                if (ia.cms.adultUnlocked) {
-                    ActRow("重置黄果访客会话", ProfileIcons.key, scope, notify) { withContext(Dispatchers.IO) { ia.huangguo.resetSession() }; "已清除黄果会话" }
-                    RowDivider()
-                }
                 ActRow("清空封面缓存", ProfileIcons.photos, scope, notify) {
                     coil.Coil.imageLoader(ctx).let { l -> l.memoryCache?.clear(); withContext(Dispatchers.IO) { l.diskCache?.clear() } }; "封面缓存已清空"
                 }
@@ -149,23 +145,10 @@ fun ProfileScreen(onOpenDetail: (String) -> Unit = {}) {
             }
         }
         item("footer", "footer") {
-            Text(message ?: "所有数据由本机直连上游，观看记录和收藏只保存在本机。\ni短剧 $ver",
+            Text(message ?: "本应用仅提供播放与阅读框架，不含任何内置片源；观看记录和收藏只保存在本机。\ni短剧 $ver",
                 color = if (message != null) c.accent else c.secondary, fontSize = 12.sp, lineHeight = 18.sp, modifier = Modifier.padding(horizontal = 16.dp))
         }
     }
-
-    if (confirmLogout) GlassConfirm(
-        onDismissRequest = { confirmLogout = false },
-        title = "退出红果账号？",
-        message = "退出后将停止同步看剧进度到红果网页端，本地观看记录不受影响。",
-        confirmText = "退出",
-        destructive = true,
-        onConfirm = {
-            ia.hgWebAccount.logout()
-            confirmLogout = false
-            notify("已退出红果账号")
-        },
-    )
 }
 
 /** [Group] with the page gutter. */

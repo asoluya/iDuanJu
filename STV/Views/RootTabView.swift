@@ -1,15 +1,28 @@
 import SwiftUI
 
-/// 四个根页面 + 窄屏底部悬浮玻璃胶囊 / 平板宽屏左侧悬浮玻璃导航轨（系统 TabBar 隐藏）。
+/// 动态根页面：默认仅「首页」「我的」，导入 TVBox 配置后才出现「TVBox」。
 /// 导航栏只在根页面显示；进入详情 / 播放器等二级页面时隐藏。
 struct RootTabView: View {
+    @ObservedObject private var tvbox = TVBoxStore.shared
     @State private var tab = Int(ProcessInfo.processInfo.environment["STV_TAB"] ?? "") ?? 0
     @State private var paths = [NavigationPath(), NavigationPath(), NavigationPath(), NavigationPath(), NavigationPath()]
     @State private var tabBarHidden = false
     @State private var restoreTask: Task<Void, Never>?
-    static let items: [(String, String)] = [("首页", "house.fill"), ("TVBox", "tv.fill"),
-                                            ("找剧", "square.grid.2x2.fill"), ("我的", "person.crop.circle.fill")]
+
+    private var activeEntries: [(tag: Int, title: String, symbol: String)] {
+        var list: [(Int, String, String)] = [(0, "首页", "house.fill")]
+        if !tvbox.repos.isEmpty { list.append((1, "TVBox", "tv.fill")) }
+        list.append((3, "我的", "person.crop.circle.fill"))
+        return list
+    }
+
     var body: some View {
+        let entries = activeEntries
+        let barItems = entries.map { ($0.title, $0.symbol) }
+        let barIndex = Binding<Int>(
+            get: { entries.firstIndex(where: { $0.tag == tab }) ?? 0 },
+            set: { idx in if entries.indices.contains(idx) { tab = entries[idx].tag } }
+        )
         GeometryReader { geo in
             let metrics = LayoutMetrics(width: geo.size.width, height: geo.size.height)
             let showNav = paths[tab].isEmpty
@@ -19,8 +32,8 @@ struct RootTabView: View {
                 // the layout of all five tabs.
                 Group {
                     if showNav && metrics.useRail {
-                        GlassNavigationRail(selection: $tab, items: Self.items) { i in
-                            if i == tab { paths[i] = NavigationPath() }
+                        GlassNavigationRail(selection: barIndex, items: barItems) { i in
+                            if entries.indices.contains(i), entries[i].tag == tab { paths[tab] = NavigationPath() }
                         }
                         .transition(.move(edge: .leading).combined(with: .opacity))
                     }
@@ -28,8 +41,9 @@ struct RootTabView: View {
                 .animation(DS.select, value: showNav && metrics.useRail)
                 TabView(selection: $tab) {
                     Stack(path: $paths[0], reserveBottomBar: !metrics.useRail) { HomeView() }.tag(0)
-                    Stack(path: $paths[1], reserveBottomBar: !metrics.useRail) { TVBoxHubView() }.tag(1)
-                    Stack(path: $paths[2], reserveBottomBar: !metrics.useRail) { CategoryView() }.tag(2)
+                    if !tvbox.repos.isEmpty {
+                        Stack(path: $paths[1], reserveBottomBar: !metrics.useRail) { TVBoxHubView() }.tag(1)
+                    }
                     Stack(path: $paths[3], reserveBottomBar: !metrics.useRail) { ProfileView() }.tag(3)
                     Stack(path: $paths[4], reserveBottomBar: !metrics.useRail) { SearchView() }.tag(4)
                 }
@@ -62,8 +76,8 @@ struct RootTabView: View {
                 .overlay(alignment: .bottom) {
                     Group {
                         if showBottomBar {
-                            GlassTabBar(selection: $tab, items: Self.items) { i in
-                                if i == tab { paths[i] = NavigationPath() }
+                            GlassTabBar(selection: barIndex, items: barItems) { i in
+                                if entries.indices.contains(i), entries[i].tag == tab { paths[tab] = NavigationPath() }
                             }
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                         }
@@ -73,6 +87,9 @@ struct RootTabView: View {
                 .compatOnChange(of: tab) { _ in
                     restoreTask?.cancel()
                     tabBarHidden = false
+                }
+                .compatOnChange(of: tvbox.repos.isEmpty) { empty in
+                    if empty && tab == 1 { tab = 0 }
                 }
                 .compatOnChange(of: showNav) { visible in
                     if !visible {
