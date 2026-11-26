@@ -57,7 +57,6 @@ fun ProfileScreen(onOpenDetail: (String) -> Unit = {}) {
     // Most rows sit far above the footer that shows the outcome, so it is also announced as a toast.
     val notify: (String) -> Unit = { message = it; GlassToast.show(it) }
 
-    val watching by remember { derivedStateOf { lib.continueWatching.take(10) } }
     val favorites by remember {
         derivedStateOf { lib.favorites.entries.sortedByDescending { it.value.third }.take(6).map { FavoriteItem(it.key, it.value.first, it.value.second) } }
     }
@@ -72,7 +71,6 @@ fun ProfileScreen(onOpenDetail: (String) -> Unit = {}) {
         item("title", "title") {
             Text("我的", color = c.text, fontWeight = FontWeight.Black, fontSize = 32.sp, modifier = Modifier.padding(horizontal = 16.dp).semantics { heading() })
         }
-        if (watching.isNotEmpty()) item("watching", "shelf") { ContinueShelf(watching, onOpenDetail, { go("library/history") }) { lib.removeProgress(it) } }
         item("favorites", "header") {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -92,8 +90,6 @@ fun ProfileScreen(onOpenDetail: (String) -> Unit = {}) {
         }
         item("library", "group") {
             GroupItem {
-                LinkRow("观看历史", ProfileIcons.history, trailing = lib.history.size.takeIf { it > 0 }?.toString()) { go("library/history") }
-                RowDivider()
                 LinkRow("我的收藏", ProfileIcons.heart, trailing = "${lib.favorites.size}") { go("library/favorites") }
             }
         }
@@ -182,7 +178,7 @@ private fun AccountCard(profile: HongguoWebAccount.Profile?, syncNote: String?, 
 
 /** iOS `ContinueRow`: 112×150 covers with the resume label and progress on the poster; long press deletes the record. */
 @Composable
-private fun ContinueShelf(list: List<WatchProgress>, onOpen: (String) -> Unit, onAll: () -> Unit, onRemove: (String) -> Unit) {
+internal fun ContinueShelf(list: List<WatchProgress>, onOpen: (String) -> Unit, onAll: () -> Unit, onRemove: (String) -> Unit) {
     val c = IdjThemeColors
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -195,10 +191,10 @@ private fun ContinueShelf(list: List<WatchProgress>, onOpen: (String) -> Unit, o
     }
 }
 
-private val CoverScrim = Brush.verticalGradient(0.45f to Color.Transparent, 1f to Color.Black.copy(0.7f))
+internal val CoverScrim = Brush.verticalGradient(0.45f to Color.Transparent, 1f to Color.Black.copy(0.7f))
 
 @Composable
-private fun ContinueCover(p: WatchProgress, onOpen: (String) -> Unit, onRemove: (String) -> Unit, modifier: Modifier) {
+internal fun ContinueCover(p: WatchProgress, onOpen: (String) -> Unit, onRemove: (String) -> Unit, modifier: Modifier) {
     val c = IdjThemeColors
     var menu by remember { mutableStateOf(false) }
     Box(modifier.width(112.dp)) {

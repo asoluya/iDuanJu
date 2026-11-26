@@ -4,6 +4,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import app.iduanju.ui.components.*
+import app.iduanju.ui.profile.ContinueShelf
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
@@ -295,8 +296,9 @@ fun HomeScreen(onOpenDetail: (String) -> Unit, onSearch: () -> Unit = {}, onPlay
                 }
                 Spacer(Modifier.height(10.dp))
                 AnimatedVisibility(visible = !pinned && watchingTop.isNotEmpty(), enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                    val goTop = app.iduanju.ui.LocalNavigate.current
                     Column {
-                        ContinueRow(watchingTop, onOpenDetail)
+                        ContinueShelf(watchingTop, onOpenDetail, { goTop("library/history") }) { IdjApp.instance.library.removeProgress(it) }
                         Spacer(Modifier.height(14.dp))
                     }
                 }
