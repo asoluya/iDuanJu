@@ -309,8 +309,8 @@ fun HomeScreen(onOpenDetail: (String) -> Unit, onSearch: () -> Unit = {}, onPlay
                 val report = remember(page.key) { { on: Boolean -> if ((scrolled[page.key] == true) != on) scrolled[page.key] = on } }
                 CompositionLocalProvider(LocalFeedScrolled provides report) {
                     when (val target = page.target) {
-                        is CMSSite -> SiteFeedPage(target, onOpenDetail)
-                        is PluginStore.Installed -> PluginFeedPage(target, onOpenDetail)
+                        is CMSSite -> SiteFeedPage(target, onOpenDetail, active = index == pager.settledPage)
+                        is PluginStore.Installed -> PluginFeedPage(target, onOpenDetail, active = index == pager.settledPage)
                         HomeSource.huangguo -> app.iduanju.huangguo.HuangguoFeedPage(onOpenDetail)
                         HomeSource.manga -> app.iduanju.manga.MangaHomePage(onOpenManga)
                         HomeSource.ai -> AiPage(onOpenDetail)

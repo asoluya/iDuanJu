@@ -58,7 +58,7 @@ private object FeedGridCache {
 
 /** iOS HomeFeedPage for `.site(cms)`. */
 @Composable
-fun SiteFeedPage(site: CMSSite, onOpen: (String) -> Unit) {
+fun SiteFeedPage(site: CMSSite, onOpen: (String) -> Unit, active: Boolean = true) {
     LaunchedEffect(site.key) {
         if (site.categories.isEmpty()) {
             val categories = withContext(Dispatchers.IO) { runCatching { MacCMS.fetchCategories(site.api) }.getOrNull() }
@@ -70,12 +70,12 @@ fun SiteFeedPage(site: CMSSite, onOpen: (String) -> Unit) {
         val o = MacCMS.fetch(site.api, buildMap { put("ac", "detail"); put("pg", page.toString()); if (cat.isNotEmpty()) put("t", cat) })
         if (cat.isEmpty() && page == 1) MacCMS.parseCategories(o).takeIf { it.isNotEmpty() }?.let { IdjApp.instance.cms.cacheCategories(site.key, it) }
         MacCMS.page(o, site.key, page)
-    }, onOpen)
+    }, onOpen, active)
 }
 
 /** iOS HomeFeedPage for `.site(plugin)` (JSVideoProvider): 推荐 + the categories `home()` returned. */
 @Composable
-fun PluginFeedPage(p: app.iduanju.plugin.PluginStore.Installed, onOpen: (String) -> Unit) {
+fun PluginFeedPage(p: app.iduanju.plugin.PluginStore.Installed, onOpen: (String) -> Unit, active: Boolean = true) {
     val cacheKey = "plugin:" + p.id
     var cats by remember(p.id) { mutableStateOf(FeedGridCache.categories[cacheKey] ?: listOf("" to "推荐")) }
     FeedGrid(cacheKey, cats, { cat, page ->
@@ -89,12 +89,12 @@ fun PluginFeedPage(p: app.iduanju.plugin.PluginStore.Installed, onOpen: (String)
             }
             r
         } catch (e: app.iduanju.core.plugin.PluginException) { throw Exception(e.friendly) }
-    }, onOpen)
+    }, onOpen, active)
 }
 
 /** 最新/推荐 + category chips, 3-column poster grid with in-memory cache, pull-to-refresh, and paging. */
 @Composable
-fun FeedGrid(key: String, cats: List<Pair<String, String>>, load: (String, Int) -> app.iduanju.core.hongguo.HGPage, onOpen: (String) -> Unit) {
+fun FeedGrid(key: String, cats: List<Pair<String, String>>, load: (String, Int) -> app.iduanju.core.hongguo.HGPage, onOpen: (String) -> Unit, active: Boolean = true) {
     val c = IdjThemeColors
     val scope = rememberCoroutineScope()
     var sel by remember(key) { mutableIntStateOf((FeedGridCache.selectedTab[key] ?: 0).coerceIn(0, (cats.size - 1).coerceAtLeast(0))) }
@@ -150,8 +150,10 @@ fun FeedGrid(key: String, cats: List<Pair<String, String>>, load: (String, Int) 
             refreshing = false
         }
     }
-    LaunchedEffect(key, activeCat) {
-        if (!bucket.loaded && items.isEmpty()) more()
+    // Only the pager's settled page loads: neighbours composed during a swipe must not fire
+    // requests (a background page could pop an interactive verification modal over this one).
+    LaunchedEffect(key, activeCat, active) {
+        if (active && !bucket.loaded && items.isEmpty()) more()
     }
     val nearEnd by remember(grid) { derivedStateOf { (grid.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0) >= grid.layoutInfo.totalItemsCount - 6 } }
     LaunchedEffect(nearEnd, items.size) { if (nearEnd && items.isNotEmpty()) more() }
