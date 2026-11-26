@@ -27,7 +27,7 @@ final class HomeInteractionUITests: XCTestCase {
     }
 
     func back() {
-        let b = app.navigationBars.buttons.element(boundBy: 0)
+        let b = el("nav.back")
         if b.waitForExistence(timeout: 3) { b.tap() } else {
             app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
                 .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5)))
@@ -40,11 +40,11 @@ final class HomeInteractionUITests: XCTestCase {
         XCTAssertTrue(app.textFields.firstMatch.waitForExistence(timeout: 8), "search page did not open")
         back()
         fingerTap(el("home.filter"))
-        XCTAssertTrue(app.navigationBars["频道"].waitForExistence(timeout: 5), "filter panel did not open")
-        app.navigationBars["频道"].buttons["完成"].tap()
+        XCTAssertTrue(el("home.channelPanel").waitForExistence(timeout: 5), "filter panel did not open")
+        el("sheet.close").tap()
         XCTAssertTrue(el("home.expand").waitForExistence(timeout: 5))
         fingerTap(el("home.expand"))
-        XCTAssertTrue(app.navigationBars["频道"].waitForExistence(timeout: 5), "expand panel did not open")
+        XCTAssertTrue(el("home.channelPanel").waitForExistence(timeout: 5), "expand panel did not open")
         // Choose 黄果 · App 源 from the panel → that source page + sub chip are selected.
         fingerTap(el("panel.黄果.App 源"))
         XCTAssertTrue(el("home.channel.黄果").isSelectedChannel(), "panel pick did not switch source")
