@@ -85,6 +85,9 @@ object SiteVerifyHost {
     }
 }
 
+private fun clearanceOf(cookieHeader: String): String? =
+    Regex("""cf_clearance=([^;]+)""").find(cookieHeader)?.groupValues?.get(1)?.trim()?.ifBlank { null }
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun SiteVerifyHostOverlay() {
@@ -92,6 +95,7 @@ fun SiteVerifyHostOverlay() {
     val c = IdjThemeColors
     var webView by remember(req) { mutableStateOf<WebView?>(null) }
     var pageTitle by remember(req) { mutableStateOf("") }
+    var initialClearance by remember(req) { mutableStateOf<String?>(null) }
 
     fun completeWithCurrentCookies() {
         val cm = CookieManager.getInstance()
@@ -167,8 +171,16 @@ fun SiteVerifyHostOverlay() {
                                 // Clearance cookie present means the challenge is passed: finish automatically
                                 // instead of relying on the user tapping 完成 at the right moment.
                                 val ck = url?.let { runCatching { CookieManager.getInstance().getCookie(it) }.getOrNull() }.orEmpty()
-                                if (ck.contains("cf_clearance=")) completeWithCurrentCookies()
+                                val now = clearanceOf(ck)
+                                if (!now.isNullOrBlank() && now != initialClearance) completeWithCurrentCookies()
                             }
+                        }
+                        // A cf_clearance left in the WebView by an earlier verification is stale: record it so the
+                        // auto-complete below only fires on a FRESH one, and try to clear it so CF issues a real challenge.
+                        initialClearance = clearanceOf(cm.getCookie(req.url).orEmpty())
+                        if (initialClearance != null) {
+                            runCatching { cm.setCookie(req.url, "cf_clearance=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/"); cm.flush() }
+                            initialClearance = clearanceOf(cm.getCookie(req.url).orEmpty()) ?: initialClearance
                         }
                         webView = this
                         loadUrl(req.url)

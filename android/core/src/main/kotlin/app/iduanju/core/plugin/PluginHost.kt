@@ -241,6 +241,22 @@ class PluginHost(
         }
     }
 
+    private fun hasClearance(url: HttpUrl): Boolean = synchronized(cookies) {
+        cookies.values.flatten().any { it.name == "cf_clearance" && it.matches(url) && it.expiresAt > System.currentTimeMillis() }
+    }
+
+    /** Drop cf_clearance cookies for this host: a stale one turns the CF challenge into a plain 403 or fails the retry. */
+    private fun dropClearance(url: HttpUrl) {
+        var changed = false
+        synchronized(cookies) {
+            for ((_, list) in cookies) {
+                val it = list.iterator()
+                while (it.hasNext()) { val ck = it.next(); if (ck.name == "cf_clearance" && ck.matches(url)) { it.remove(); changed = true } }
+            }
+        }
+        if (changed) { log("🧹 已清除失效的 cf_clearance（${url.host}）"); persistSession() }
+    }
+
     private fun needStorage() { if (!manifest.storage) throw PluginException("E_PERMISSION", "manifest 没有声明 permissions.storage") }
 
     // ---- http ----
@@ -275,7 +291,7 @@ class PluginHost(
         val follow = a.optString("redirect", "follow") != "manual"
         val respType = a.optString("responseType", "text")
         val client = baseHttp.newBuilder().callTimeout(timeout, TimeUnit.SECONDS).build()
-        var hops = 0; var m = method; var bd = body; var retriedCf = false
+        var hops = 0; var m = method; var bd = body; var retriedCf = false; var clearedStale = false
         while (true) {
             rateLimit()
             val start = System.currentTimeMillis()
@@ -303,7 +319,12 @@ class PluginHost(
                 continue
             }
             val text = if (respType != "base64") decodeText(data, hdrs["content-type"]) else null
-            if (!retriedCf && isCloudflareChallenge(status, hdrs, text)) {
+            val challenge = isCloudflareChallenge(status, hdrs, text)
+            if (challenge && retriedCf) dropClearance(url)
+            if (!challenge && !retriedCf && !clearedStale && (status == 403 || status == 503) && hasClearance(url)) {
+                dropClearance(url); clearedStale = true; continue
+            }
+            if (!retriedCf && challenge) {
                 val handler = onVerifyRequired
                 if (manifest.cloudflare && handler != null) {
                     log("⚠ ${url.host} 触发站点验证，等待用户完成验证")
