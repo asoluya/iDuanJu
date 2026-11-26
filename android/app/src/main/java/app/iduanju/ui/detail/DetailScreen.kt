@@ -917,6 +917,14 @@ private fun seasonParts(title: String): Pair<String, Int> {
     return title.trim() to 1
 }
 
+private fun intToCn(n: Int): String {
+    val d = listOf("", "一", "二", "三", "四", "五", "六", "七", "八", "九")
+    if (n in 1..9) return d[n]
+    if (n in 10..19) return "十" + d[n % 10]
+    if (n in 20..99) return d[n / 10] + "十" + d[n % 10]
+    return n.toString()
+}
+
 private object SeasonCache { val byBase = mutableMapOf<String, List<HGSeries>>() }
 
 /** Season picker below the episodes: portrait posters like the home shelves; tapping opens that season's own detail page. */
@@ -925,6 +933,7 @@ private fun SeasonRow(seasons: List<HGSeries>, currentSid: String, onOpenSeries:
     val c = IdjThemeColors
     val cardWidth = 104.dp
     val cardHeight = cardWidth * (4f / 3f)
+    val sameName = seasons.map { seasonParts(it.title).first }.distinct().size == 1
     SectionHeader2("选季", "共 ${seasons.size} 季", inset = 20.dp, modifier = Modifier.padding(top = 26.dp))
     LazyRow(Modifier.padding(top = 12.dp), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         items(seasons, key = { it.seriesId }) { x ->
@@ -936,7 +945,7 @@ private fun SeasonRow(seasons: List<HGSeries>, currentSid: String, onOpenSeries:
                         Text("当前", color = c.onAccent, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
                     }
                 }
-                Text(x.title, color = c.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
+                Text(if (sameName) "第${intToCn(seasonParts(x.title).second)}季" else x.title, color = c.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
                 if (x.episodeCount > 0) Text("${x.episodeCount} 集", color = c.secondary, fontSize = 11.sp, maxLines = 1, modifier = Modifier.padding(top = 2.dp))
             }
         }
