@@ -137,11 +137,12 @@ struct MacCMSProvider: SiteProvider {
     }
 
     static func parseCategories(_ o: [String: Any]) -> [PluginCategory] {
-        ((o["class"] as? [[String: Any]]) ?? []).compactMap { c in
+        let all = ((o["class"] as? [[String: Any]]) ?? []).compactMap { c -> PluginCategory? in
             let id = PluginOut.s(c["type_id"]), name = PluginOut.s(c["type_name"], max: 30)
             guard !id.isEmpty, !name.isEmpty, !ContentFilter.isBlocked([name]) else { return nil }
             return PluginCategory(id: id, name: name)
         }
+        return PluginOut.unique(all) { $0.id }
     }
 
     static func fetchCategories(api: String) async throws -> [PluginCategory] {
@@ -151,7 +152,7 @@ struct MacCMSProvider: SiteProvider {
     }
 
     static func parseItems(_ o: [String: Any], source: DramaSource) -> [HGSeries] {
-        ((o["list"] as? [[String: Any]]) ?? []).compactMap { v in
+        let all = ((o["list"] as? [[String: Any]]) ?? []).compactMap { v -> HGSeries? in
             let id = PluginOut.s(v["vod_id"]), title = PluginOut.s(v["vod_name"], max: 200)
             guard !id.isEmpty, !title.isEmpty else { return nil }
             let tags = [PluginOut.s(v["type_name"], max: 30), PluginOut.s(v["vod_class"], max: 60)].filter { !$0.isEmpty }
@@ -162,8 +163,9 @@ struct MacCMSProvider: SiteProvider {
             return HGSeries(source: source, seriesId: id, title: title, cover: cover, subtitle: PluginOut.s(v["vod_remarks"], max: 40).nilIfEmpty,
                             author: PluginOut.s(v["vod_director"], max: 60).nilIfEmpty,
                             actors: PluginOut.s(v["vod_actor"], max: 200).split(whereSeparator: { ",，/ ".contains($0) }).prefix(6).map(String.init),
-                            orientation: "portrait", tags: tags)
+                            orientation: "portrait", tags: PluginOut.unique(tags) { $0 })
         }
+        return PluginOut.unique(all) { $0.id }
     }
 
     static func page(_ o: [String: Any], source: DramaSource, page p: Int) -> HGPage {
@@ -212,14 +214,15 @@ struct MacCMSProvider: SiteProvider {
         }
         var cover = PluginOut.s(v["vod_pic"], max: 2000)
         if cover.hasPrefix("http://") { cover = "https://" + cover.dropFirst(7) }
+        let actors = PluginOut.s(v["vod_actor"], max: 300).split(whereSeparator: { ",，/".contains($0) }).prefix(12).map { $0.trimmingCharacters(in: .whitespaces) }
         var desc = PluginOut.s(v["vod_content"], max: 4000)
         desc = desc.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression).replacingOccurrences(of: "&nbsp;", with: " ")
         let meta = [PluginOut.s(v["vod_year"]), PluginOut.s(v["vod_area"]), PluginOut.s(v["vod_remarks"])].filter { !$0.isEmpty }.joined(separator: " · ")
         return HGSeriesDetail(source: source, seriesId: s.seriesId, title: title, cover: cover.isEmpty ? s.cover : cover,
                               desc: [meta, desc].filter { !$0.isEmpty }.joined(separator: "\n"),
                               author: PluginOut.s(v["vod_director"], max: 60).nilIfEmpty,
-                              actors: PluginOut.s(v["vod_actor"], max: 300).split(whereSeparator: { ",，/".contains($0) }).prefix(12).map { $0.trimmingCharacters(in: .whitespaces) },
-                              onlineTime: 0, totalEps: eps.count, episodes: eps, tags: tags.filter { !$0.isEmpty },
+                              actors: PluginOut.unique(actors) { $0 },
+                              onlineTime: 0, totalEps: eps.count, episodes: eps, tags: PluginOut.unique(tags.filter { !$0.isEmpty }) { $0 },
                               episodeLabel: eps.count > 1 ? "共\(eps.count)集" : "长视频")
     }
 
@@ -274,7 +277,7 @@ struct MacCMSProvider: SiteProvider {
 }
 
 /// MacCMS RSS uses one <dd flag="…"> per playback line and carries pagination on <list>.
-private final class CMSXML: NSObject, XMLParserDelegate {
+final class CMSXML: NSObject, XMLParserDelegate {
     var output: [String: Any] = [:]
     var videos: [[String: String]] = [], categories: [[String: String]] = []
     var video: [String: String]?, flags: [String] = [], urls: [String] = []
