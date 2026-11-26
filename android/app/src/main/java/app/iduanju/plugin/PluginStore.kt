@@ -68,6 +68,14 @@ class PluginStore(private val ctx: Context,
         if (changed) sp.edit().putStringSet("bundledSeeded", done).apply()
     }
 
+    /** One-time seed of the official plugin subscription: added once (recorded in prefs); if the user removes it, it never comes back. A failed fetch leaves the seed pending so the next launch retries. Blocking; call off the main thread. */
+    fun seedDefaultSubscription() {
+        if (sp.getBoolean("defaultSubSeeded", false)) return
+        if (subscriptions.any { it.url == DEFAULT_SUB_URL }) { sp.edit().putBoolean("defaultSubSeeded", true).apply(); return }
+        runCatching { addSubscription(DEFAULT_SUB_URL) }
+            .onSuccess { sp.edit().putBoolean("defaultSubSeeded", true).apply() }
+    }
+
     fun setEnabled(id: String, on: Boolean) { val i = plugins.indexOfFirst { it.id == id }; if (i >= 0) { plugins[i] = plugins[i].copy(enabled = on); save() } }
 
     fun visible(adultUnlocked: Boolean) = plugins.filter { it.enabled && (!it.adult || adultUnlocked) }
@@ -172,6 +180,7 @@ class PluginStore(private val ctx: Context,
     companion object {
         const val KEY = "stv.plugins.index"
         const val SUBS = "stv.plugins.subscriptions"
+        const val DEFAULT_SUB_URL = "https://raw.githubusercontent.com/my-name-is-alan/iDuanJu/plugin/subscription.json"
         private val http = okhttp3.OkHttpClient.Builder().callTimeout(20, java.util.concurrent.TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false).build()
 
         fun checkedDownloadURL(value:String):okhttp3.HttpUrl {
