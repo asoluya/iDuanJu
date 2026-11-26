@@ -231,6 +231,9 @@ fun HomeScreen(onOpenDetail: (String) -> Unit, onSearch: () -> Unit = {}, onPlay
         return
     }
     val pager = rememberPagerState { pages.size }
+    LaunchedEffect(pager, pages) {
+        snapshotFlow { pager.currentPage }.collect { i -> pages.getOrNull(i)?.let { IdjApp.instance.settings.currentHomePageKey = it.key } }
+    }
     LaunchedEffect(HomeJump.label, pages.size) {
         val label = HomeJump.label ?: return@LaunchedEffect
         val i = pages.indexOfFirst { it.label == label }

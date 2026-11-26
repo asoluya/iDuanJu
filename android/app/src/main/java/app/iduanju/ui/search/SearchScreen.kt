@@ -161,6 +161,7 @@ fun SearchScreen(
     val uiScope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
+        ia.settings.currentHomePageKey?.let { key -> if (sources.any { it.first == key }) source = key }
         if (initialQuery.isBlank() && !vm.started) {
             vm.started = true
             delay(80)

@@ -52,6 +52,9 @@ class SettingsStore(ctx: Context) {
         sp.edit().putString("home.pageOrder", JSONArray(keys).toString()).apply()
     }
 
+    /** Home pager's current page key (transient, never persisted): the search screen opens on this source. */
+    var currentHomePageKey: String? by mutableStateOf(null)
+
     var danmakuArea: Float
         get() = sp.getFloat("danmakuArea", 1f / 3f)
         set(v) { sp.edit().putFloat("danmakuArea", v).apply() }
