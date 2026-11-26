@@ -52,7 +52,8 @@ import java.util.concurrent.TimeUnit
 internal object PlayerHttp {
     private val direct = OkHttpClient.Builder().proxy(Proxy.NO_PROXY)
         .connectionPool(ConnectionPool(8, 3, TimeUnit.MINUTES))
-        .connectTimeout(8, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).build()
+        .retryOnConnectionFailure(true)
+        .connectTimeout(8, TimeUnit.SECONDS).readTimeout(12, TimeUnit.SECONDS).build()
     private val system = direct.newBuilder().proxy(null).build()
     private fun guarded(c: OkHttpClient) = c.newBuilder().dns(TVBoxMediaGuard).addNetworkInterceptor(TVBoxMediaGuard).build()
     private val guardedDirect by lazy { guarded(direct) }
@@ -313,7 +314,7 @@ internal object PlayerFactory {
         val target = when { mb < 192 -> 48 shl 20; mb < 384 -> 96 shl 20; else -> 144 shl 20 }
         return DefaultLoadControl.Builder()
             .setAllocator(DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE))
-            .setBufferDurationsMs(20_000, 60_000, 800, 2_000)
+            .setBufferDurationsMs(25_000, 60_000, 800, 3_500)
             .setTargetBufferBytes(target)
             .setPrioritizeTimeOverSizeThresholds(false)
             .apply { if (mb >= 384) setBackBuffer(6_000, true) }

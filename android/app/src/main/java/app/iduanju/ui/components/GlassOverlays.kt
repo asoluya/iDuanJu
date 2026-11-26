@@ -100,10 +100,9 @@ fun Modifier.overlaySurface(shape: Shape): Modifier {
         liquid -> 0.93f - 0.20f * GlassStylePref.strength
         else -> 0.92f
     })
-    val rim = if (c.dark) listOf(Color.White.copy(0.22f), Color.White.copy(0.05f)) else listOf(Color.White.copy(0.95f), Color.Black.copy(0.06f))
+    val rim = if (c.dark) Color.White.copy(0.08f) else Color.Black.copy(0.06f)
     return this.clip(shape).background(fill)
-        .background(Brush.verticalGradient(0f to Color.White.copy(if (c.dark) 0.06f else 0.35f), 0.30f to Color.Transparent))
-        .border(0.8.dp, Brush.verticalGradient(rim), shape)
+        .border(0.6.dp, rim, shape)
 }
 
 // MARK: dialog

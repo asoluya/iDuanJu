@@ -149,8 +149,14 @@ internal fun CenterTransport(session: PlayerSession, dims: PlayerDimens, visible
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(if (dims.tablet) 84.dp else 52.dp)) {
             if (session.live) CircleBtn(Icons.Filled.SkipPrevious, "上一个频道", session.hasPrev, dims.side, dims.side * 0.52f) { session.prev() }
             else CircleBtn(Icons.Filled.Replay10, "后退10秒", true, dims.side, dims.side * 0.52f) { session.seekBy(-10_000L) }
-            Box(Modifier.size(dims.main).glassSurface(CircleShape, backdrop = backdrop, dark = true, shadowRadius = 12.dp, fallbackAlpha = 0.46f)
-                .pressClick(0.92f, label = if (session.playing) "暂停" else "播放") { session.togglePlay() }, contentAlignment = Alignment.Center) {
+            Box(
+                Modifier.size(dims.main)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.46f))
+                    .border(0.6.dp, Color.White.copy(alpha = 0.10f), CircleShape)
+                    .pressClick(0.92f, label = if (session.playing) "暂停" else "播放") { session.togglePlay() },
+                contentAlignment = Alignment.Center,
+            ) {
                 Crossfade(session.playing, label = "pp") { p -> Icon(if (p) Icons.Filled.Pause else Icons.Filled.PlayArrow, null, tint = Color.White, modifier = Modifier.size(dims.main * 0.46f)) }
             }
             if (session.live) CircleBtn(Icons.Filled.SkipNext, "下一个频道", session.hasNext, dims.side, dims.side * 0.52f) { session.next() }
@@ -185,6 +191,19 @@ internal fun BottomConsole(
                 LiveControls(session, ui, dims, enabled, canToggleOrientation, onOrientation)
             } else {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier.size(36.dp).clip(CircleShape)
+                            .pressClick(0.88f, enabled = enabled, label = if (session.playing) "暂停" else "播放") {
+                                session.togglePlay()
+                                ui.showChrome = true
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Crossfade(session.playing, label = "barPP") { p ->
+                            Icon(if (p) Icons.Filled.Pause else Icons.Filled.PlayArrow, null, tint = Color.White, modifier = Modifier.size(24.dp))
+                        }
+                    }
+                    Spacer(Modifier.width(if (dims.tablet) 8.dp else 4.dp))
                     PlayerTimeBar(session.clock, dims.tablet, seekPreview, Modifier.weight(1f)) { if (!ui.locked) { session.seekTo(it); ui.showChrome = true } }
                     if (canToggleOrientation) {
                         Spacer(Modifier.width(if (dims.tablet) 12.dp else 8.dp))
@@ -278,8 +297,13 @@ internal fun BoxScope.PlayerStatus(session: PlayerSession, backdrop: Backdrop?) 
     AnimatedVisibility(text.isNotEmpty(), Modifier.align(Alignment.Center), enter = Motion.modalEnter, exit = Motion.modalExit) {
         val shown = remember { arrayOf("") }
         if (text.isNotEmpty()) shown[0] = text
-        Column(Modifier.glassSurface(RoundedCornerShape(18.dp), dark = true, base = PlayerGlass, shadowRadius = 10.dp, fallbackAlpha = 0.6f, activeOverlay = Color.Black.copy(0.2f))
-            .semantics { liveRegion = LiveRegionMode.Polite }.padding(horizontal = 20.dp, vertical = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            Modifier.clip(RoundedCornerShape(16.dp))
+                .background(Color(0xFF181A20).copy(alpha = 0.88f))
+                .border(0.5.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(16.dp))
+                .semantics { liveRegion = LiveRegionMode.Polite }.padding(horizontal = 20.dp, vertical = 14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
             GlassSpinner(size = 28.dp, color = Color.White)
             Spacer(Modifier.height(10.dp))
             Text(shown[0], color = Color.White.copy(0.88f), fontSize = 13.sp)
@@ -287,9 +311,14 @@ internal fun BoxScope.PlayerStatus(session: PlayerSession, backdrop: Backdrop?) 
     }
     session.error?.let { ErrorCard(session, it, backdrop, Modifier.align(Alignment.Center)) }
     if (session.holding) {
-        Row(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 96.dp)
-            .glassSurface(RoundedCornerShape(16.dp), dark = true, base = PlayerGlass, shadowRadius = 8.dp, fallbackAlpha = 0.6f).padding(horizontal = 22.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 96.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color(0xFF181A20).copy(alpha = 0.86f))
+                .border(0.5.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+                .padding(horizontal = 22.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Icon(Icons.Filled.FastForward, null, tint = Color.White)
             Spacer(Modifier.width(8.dp))
             Text("2.0×", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
@@ -302,29 +331,44 @@ internal fun BoxScope.PlayerStatus(session: PlayerSession, backdrop: Backdrop?) 
 private fun Hint(session: PlayerSession, modifier: Modifier) {
     val h = session.hint
     LaunchedEffect(h) { if (h != null) { kotlinx.coroutines.delay(if (h.length > 10) 2_200 else 800); if (session.hint == h) session.hint = null } }
-    if (h != null) Text(h, color = Color.White, fontSize = if (h.length > 10) 14.sp else 17.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
+    if (h != null) Text(
+        h, color = Color.White, fontSize = if (h.length > 10) 14.sp else 17.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
         modifier = modifier.offset(y = (-96).dp).padding(horizontal = 32.dp).semantics { liveRegion = LiveRegionMode.Polite }
-            .glassSurface(RoundedCornerShape(14.dp), dark = true, base = PlayerGlass, shadowRadius = 8.dp, fallbackAlpha = 0.6f, activeOverlay = Color.Black.copy(0.22f))
-            .padding(horizontal = 16.dp, vertical = 8.dp))
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0xFF181A20).copy(alpha = 0.86f))
+            .border(0.5.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    )
 }
 
 @Composable
 private fun ErrorCard(session: PlayerSession, message: String, backdrop: Backdrop?, modifier: Modifier) {
     val pc = IdjDarkColors
     Column(
-        modifier.padding(28.dp).widthIn(max = 340.dp)
-            .glassSurface(RoundedCornerShape(24.dp), backdrop = backdrop, dark = true, base = PlayerGlass, shadowRadius = 18.dp, fallbackAlpha = 0.72f, activeOverlay = Color.Black.copy(0.24f))
+        modifier.padding(28.dp).widthIn(max = 320.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color(0xFF1A1C22).copy(alpha = 0.92f))
+            .border(0.5.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(20.dp))
             .pointerInput(Unit) { detectTapGestures { } }
             .padding(horizontal = 22.dp, vertical = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(Icons.Filled.ErrorOutline, null, Modifier.size(30.dp), tint = pc.accentWarm)
+        Icon(Icons.Filled.ErrorOutline, null, Modifier.size(28.dp), tint = pc.accentWarm)
         Text(message, color = Color.White.copy(0.92f), fontSize = 15.sp, lineHeight = 21.sp, textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 10.dp).semantics { liveRegion = LiveRegionMode.Assertive })
         session.line?.name?.takeIf { session.multiLine && it.isNotBlank() }?.let { Text("当前线路：$it", color = Color.White.copy(0.55f), fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp)) }
         Spacer(Modifier.height(16.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (session.canSwitchSource) GlassButton("换线路", tone = ButtonTone.Glass, size = ButtonSize.Regular, colors = pc) { session.switchSource() }
+            if (session.canSwitchSource) {
+                Box(
+                    Modifier.heightIn(min = 40.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.12f))
+                        .pressClick(0.94f, label = "换线路") { session.switchSource() }
+                        .padding(horizontal = 18.dp, vertical = 8.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("换线路", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
             GlassButton("重试", tone = ButtonTone.Primary, size = ButtonSize.Regular, colors = pc) { session.retry() }
         }
     }
@@ -332,10 +376,20 @@ private fun ErrorCard(session: PlayerSession, message: String, backdrop: Backdro
 
 // ── widgets ─────────────────────────────────────────────────────────────────────────────────────────────
 
-/** Dark glass circle over the video. Small controls do not sample the backdrop: several blurs per frame cost more than they show. */
+/** Clean translucent player icon button over video scrim: no harsh glass rim or fake specular glare. */
 @Composable
-internal fun CircleBtn(icon: ImageVector, label: String, enabled: Boolean = true, size: Dp = 42.dp, iconSize: Dp = 20.dp, tint: Color = Color.White, onClick: () -> Unit) {
-    GlassIconButton(icon, label, size = size, iconSize = iconSize, dark = true, tint = tint, fallbackAlpha = 0.42f, enabled = enabled, onClick = onClick)
+internal fun CircleBtn(icon: ImageVector, label: String, enabled: Boolean = true, size: Dp = 40.dp, iconSize: Dp = 21.dp, tint: Color = Color.White, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.28f))
+            .graphicsLayer { alpha = if (enabled) 1f else 0.4f }
+            .pressClick(0.90f, enabled = enabled, label = label, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, null, tint = tint, modifier = Modifier.size(iconSize))
+    }
 }
 
 /** Landscape console chip: icon + title + value; accent capsule when on. Plain wells: the console is the glass. */

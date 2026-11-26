@@ -162,8 +162,10 @@ private fun PlayerStage(
             }
         }
         val ready = session.status.isEmpty() && session.error == null && session.firstFrame
-        CenterTransport(session, dims, ui.showChrome && ready && !session.centerSuppressed && !ui.locked && ui.panel == null && !ui.channelDrawer && !nextDrama.countdownOn,
-            backdrop, Modifier.align(Alignment.Center))
+        if (session.live) {
+            CenterTransport(session, dims, ui.showChrome && ready && !session.centerSuppressed && !ui.locked && ui.panel == null && !ui.channelDrawer && !nextDrama.countdownOn,
+                backdrop, Modifier.align(Alignment.Center))
+        }
         // Minimal 2 dp bottom edge progress while the HUD is hidden (no top title blocking portrait short dramas).
         if (!ui.showChrome && ui.panel == null && !session.live) EdgeProgressBar(session.clock, Modifier.align(Alignment.BottomCenter))
         // Floating seek-bar thumbnail above the thumb while scrubbing; draw-only, no touches.

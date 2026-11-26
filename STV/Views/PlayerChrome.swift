@@ -207,14 +207,14 @@ struct PlayerProgressBar: View {
 
 /// Progress bar with its times. Portrait: times inline, 全屏 closes the row. Landscape: times inline only.
 struct PlayerTimelineV3: View {
-    let co: PlaybackCoordinator
+    @ObservedObject var co: PlaybackCoordinator
     @ObservedObject private var clock: PlaybackClock
     @Binding var scrubbing: Bool
     var onInteract: () -> Void
     var onFullscreen: (() -> Void)?
 
     init(co: PlaybackCoordinator, scrubbing: Binding<Bool>, onInteract: @escaping () -> Void = {}, onFullscreen: (() -> Void)? = nil) {
-        self.co = co
+        _co = ObservedObject(wrappedValue: co)
         _clock = ObservedObject(wrappedValue: co.clock)
         _scrubbing = scrubbing
         self.onInteract = onInteract
@@ -224,6 +224,16 @@ struct PlayerTimelineV3: View {
     var body: some View {
         let t = clock.scrubPreview ?? clock.sample.time
         HStack(spacing: 10) {
+            Button { co.togglePause(); onInteract() } label: {
+                Image(systemName: co.paused ? "play.fill" : "pause.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 30, height: 30)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(PressScale())
+            .accessibilityLabel(co.paused ? "播放" : "暂停")
+            .accessibilityIdentifier("player.playPause")
             Text(Fmt.clock(Int(t))).accessibilityIdentifier("player.time")
             PlayerProgressBar(co: co, scrubbing: $scrubbing, onInteract: onInteract)
             Text("−" + Fmt.clock(Int(max(0, clock.sample.duration - t)))).accessibilityIdentifier("player.remaining")

@@ -221,7 +221,7 @@ class PlayerSession internal constructor(
                 // Radio channels and audio-only files never render a frame.
                 if (player.currentTracks.groups.isNotEmpty() && !player.currentTracks.isTypeSelected(C.TRACK_TYPE_VIDEO)) frameShown()
             }
-            if (state == Player.STATE_BUFFERING && live && firstFrame && mediaReady) watchStall()
+            if (state == Player.STATE_BUFFERING && firstFrame && mediaReady) watchStall()
             if (state == Player.STATE_ENDED && mediaReady) onEnded()
             else if (state == Player.STATE_READY || state == Player.STATE_BUFFERING) ended = false
         }
@@ -581,11 +581,39 @@ class PlayerSession internal constructor(
     private fun playsUnseen(): Boolean = !hasSurface() && player.playbackState == Player.STATE_READY
 
     private fun watchStall() {
-        if (stallJob?.isActive == true) return
+        if (stallJob?.isActive == true || queued || fixture) return
         stallJob = scope.launch {
-            delay(8_000)
+            if (live) {
+                delay(8_000)
+                if (player.playbackState != Player.STATE_BUFFERING || !mediaReady) return@launch
+                if (!failover("信号中断")) reconnect()
+                return@launch
+            }
+            // VOD stall watchdog: if buffering stalls without advancing bufferedPosition for 15s, recover automatically.
+            var lastBuffered = player.bufferedPosition
+            var stalledMs = 0L
+            while (stalledMs < 15_000L) {
+                delay(1_000L)
+                if (player.playbackState != Player.STATE_BUFFERING || !mediaReady) return@launch
+                val curBuffered = player.bufferedPosition
+                if (curBuffered > lastBuffered + 1_500L) {
+                    lastBuffered = curBuffered
+                    stalledMs = 0L
+                } else {
+                    stalledMs += 1_000L
+                }
+            }
             if (player.playbackState != Player.STATE_BUFFERING || !mediaReady) return@launch
-            if (!failover("信号中断")) reconnect()
+            if (failover("缓冲超时")) return@launch
+            if (autoSwitches < MAX_AUTO_SWITCHES) {
+                autoSwitches++
+                hint = "缓冲超时，正在重新连接…"
+                episode?.let { EpisodeCache.forget(it) }
+                load(resumeAnchor(), forced = stream, forceResolve = true)
+            } else {
+                player.pause()
+                fail("缓冲超时，请检查网络或切换线路后重试")
+            }
         }
     }
 
@@ -902,8 +930,10 @@ class PlayerSession internal constructor(
         val pos = runCatching { player.currentPosition }.getOrDefault(clock.pos).coerceAtLeast(0L)
         val dur = runCatching { player.duration.coerceAtLeast(0L) }.getOrDefault(clock.dur)
         lib.record(WatchProgress(seriesId, d.title, d.cover, epIndex, ep.ep, pos / 1000.0, dur / 1000.0, now))
-        if (!force) IdjApp.instance.hgWebAccount.reportProgressAsync(seriesId, ep.vid, ep.ep, pos, watchedMs[0].coerceAtLeast(1500L), force = false)
-        else if (watchedMs[0] >= 1000L) IdjApp.instance.hgWebAccount.reportProgressAsync(seriesId, ep.vid, ep.ep, pos, watchedMs[0], force = true)
+        if (app.iduanju.data.Catalog.isHongguo(seriesId) && pos > 0L) {
+            if (!force) IdjApp.instance.hgWebAccount.reportProgressAsync(seriesId, ep.vid, ep.ep, pos, watchedMs[0].coerceAtLeast(1500L), force = false)
+            else if (watchedMs[0] >= 1000L) IdjApp.instance.hgWebAccount.reportProgressAsync(seriesId, ep.vid, ep.ep, pos, watchedMs[0], force = true)
+        }
     }
 
     private companion object {

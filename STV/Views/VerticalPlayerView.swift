@@ -180,7 +180,7 @@ struct PlayerScreen: View {
                     } else {
                         if locked {
                             if controlsVisible { lockOnly(full, ins: ins).transition(.opacity) }
-                        } else if controlsVisible, !centerSuppressed, co.current != nil, co.readyIndex == co.current, !scrubbing, panel == nil {
+                        } else if co.isLive, controlsVisible, !centerSuppressed, co.current != nil, co.readyIndex == co.current, !scrubbing, panel == nil {
                             PlayerCenterControls(co: co, onInteract: flashChrome, spacing: landscape ? 72 : 44)
                                 .position(x: landscape ? full.width / 2 : rect.midX, y: landscape ? full.height / 2 : rect.midY)
                                 .transition(.opacity)

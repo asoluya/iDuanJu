@@ -22,6 +22,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -106,6 +107,40 @@ fun RootScreen(initialRoute: String? = null) {
             )
         }
         val showChromeNav = atRoot && !(route == "home" && novelImmersive)
+        var dockHidden by remember { mutableStateOf(false) }
+        var scrollTick by remember { mutableIntStateOf(0) }
+        LaunchedEffect(route, showChromeNav) { dockHidden = false }
+        LaunchedEffect(scrollTick, dockHidden) {
+            if (dockHidden) {
+                kotlinx.coroutines.delay(380)
+                dockHidden = false
+            }
+        }
+        val dockScroll = remember {
+            object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+                override fun onPostScroll(
+                    consumed: androidx.compose.ui.geometry.Offset,
+                    available: androidx.compose.ui.geometry.Offset,
+                    source: androidx.compose.ui.input.nestedscroll.NestedScrollSource,
+                ): androidx.compose.ui.geometry.Offset {
+                    if (consumed.y < -4f) {
+                        dockHidden = true
+                        scrollTick++
+                    } else if (consumed.y > 4f) {
+                        dockHidden = false
+                    }
+                    return androidx.compose.ui.geometry.Offset.Zero
+                }
+
+                override suspend fun onPostFling(
+                    consumed: androidx.compose.ui.unit.Velocity,
+                    available: androidx.compose.ui.unit.Velocity,
+                ): androidx.compose.ui.unit.Velocity {
+                    if (dockHidden) scrollTick++
+                    return androidx.compose.ui.unit.Velocity.Zero
+                }
+            }
+        }
         val navItems = listOf<Pair<String, @Composable (Boolean) -> Unit>>(
             "首页" to { on -> Icon(Icons.Filled.Home, null, Modifier.size(20.dp), tint = if (on) IdjThemeColors.text else dockLabel()) },
             "TVBox" to { on -> Icon(Icons.Filled.LiveTv, null, Modifier.size(20.dp), tint = if (on) IdjThemeColors.text else dockLabel()) },
@@ -151,7 +186,7 @@ fun RootScreen(initialRoute: String? = null) {
             // Root backdrop is only active while the NavHost is recorded into it (chrome nav visible).
             LocalRootBackdrop provides (if (showChromeNav) backdrop else null),
         ) {
-            Row(Modifier.fillMaxSize()) {
+            Row(Modifier.fillMaxSize().then(if (showChromeNav && !metrics.useRail) Modifier.nestedScroll(dockScroll) else Modifier)) {
                 if (showChromeNav && metrics.useRail) {
                     GlassNavigationRail(
                         selected = tab,
@@ -260,13 +295,13 @@ fun RootScreen(initialRoute: String? = null) {
                 }
             }
         }
-        if (showChromeNav && !metrics.useRail) androidx.compose.animation.AnimatedVisibility(
-            visible = true,
+        androidx.compose.animation.AnimatedVisibility(
+            visible = showChromeNav && !metrics.useRail && !dockHidden,
             modifier = Modifier.align(Alignment.BottomCenter),
             enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)) +
-                androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(220)) { it / 2 },
+                androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(220)) { it + 48 },
             exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(140)) +
-                androidx.compose.animation.slideOutVertically(androidx.compose.animation.core.tween(180)) { it / 2 },
+                androidx.compose.animation.slideOutVertically(androidx.compose.animation.core.tween(180)) { it + 48 },
         ) {
             SwipeableGlassTabBar(
                 selected = tab,

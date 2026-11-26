@@ -105,7 +105,6 @@ fun GlassButton(
     }
     val surface = when (tone) {
         ButtonTone.Primary -> Modifier.clip(shape).background(colors.accent)
-            .border(0.8.dp, Brush.verticalGradient(listOf(Color.White.copy(0.28f), Color.White.copy(0.02f))), shape)
         ButtonTone.Tinted -> Modifier.clip(shape).background(colors.accentSoft)
         ButtonTone.Glass -> Modifier.glassPill(shape, dark = colors.dark, accent = colors.accent)
         ButtonTone.Plain, ButtonTone.DangerPlain -> Modifier.clip(shape)
