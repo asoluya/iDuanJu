@@ -273,10 +273,13 @@ private struct DSDialogPresenter<Extra: View>: ViewModifier {
             .fullScreenCover(isPresented: $cover) {
                 DSDialogCard(title: title, message: message, actions: actions(), extra: extra()) { a in
                     set(false)
-                    isPresented = false
-                    // After the cover is gone: actions may present something themselves.
-                    if let a { DispatchQueue.main.async { a.action() } }
-                    else if let cancel = actions().first(where: { $0.role == .cancel }) { DispatchQueue.main.async { cancel.action() } }
+                    let run = a?.action ?? actions().first(where: { $0.role == .cancel })?.action
+                    // After the cover is gone: actions may present something themselves. The binding is cleared only after
+                    // the action ran, as actions read the state it is made of (`Binding(get: { deleting != nil } …)`).
+                    DispatchQueue.main.async {
+                        run?()
+                        isPresented = false
+                    }
                 }
                 .background(ClearCoverBackground())
                 .compatPresentationBackground(Color.clear)
