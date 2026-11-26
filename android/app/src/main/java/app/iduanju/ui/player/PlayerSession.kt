@@ -25,6 +25,7 @@ import app.iduanju.core.hongguo.HGEpisode
 import app.iduanju.core.hongguo.HGPlayLine
 import app.iduanju.core.hongguo.HGSeriesDetail
 import app.iduanju.core.hongguo.HGStream
+import app.iduanju.core.plugin.PluginVideo
 import app.iduanju.core.tvbox.Programme
 import app.iduanju.data.WatchProgress
 import app.iduanju.ui.UiEvidence
@@ -108,7 +109,7 @@ class PlayerSession internal constructor(
     /** Official 红果 comments, or the address a TVBox source delivered with the stream. */
     var danmakuUrl by mutableStateOf<String?>(null)
         private set
-    val danmakuCapable: Boolean get() = seriesId.all { it.isDigit() } || danmakuUrl != null
+    val danmakuCapable: Boolean get() = seriesId.all { it.isDigit() } || danmakuUrl != null || (episode?.vid?.let { PluginVideo.danmakuTarget(it) } != null)
 
     var streams by mutableStateOf<List<HGStream>>(emptyList())
         private set

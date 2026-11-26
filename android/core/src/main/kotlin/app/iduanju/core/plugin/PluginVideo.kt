@@ -116,6 +116,8 @@ class PluginVideo(val inst: PluginInstance, private val extraDomains: List<Strin
         fun parseSid(s: String): Pair<String, String>? { val p = s.split(":"); return if (p.size == 3 && p[0] == "plugin") runCatching { p[1] to unb64(p[2]) }.getOrNull() else null }
         fun epVid(pid: String, id: String, ep: String) = "plugin:$pid:${b64(id)}:${b64(ep)}"
         fun parseEp(s: String): Triple<String, String, String>? { val p = s.split(":"); return if (p.size == 4 && p[0] == "plugin") runCatching { Triple(p[1], unb64(p[2]), unb64(p[3])) }.getOrNull() else null }
+        /** (bookId, itemId) when a plugin episode wraps a 红果 title: the official danmaku client can serve those ids. */
+        fun danmakuTarget(epVid: String): Pair<String, String>? { val (_, sidRaw, eid) = parseEp(epVid) ?: return null; return if (sidRaw.isNotEmpty() && sidRaw.all { it.isDigit() } && eid.isNotEmpty() && eid.all { it.isDigit() }) sidRaw to eid else null }
         fun pluginId(s: String): String? = s.split(":").takeIf { it.size >= 3 && it[0] == "plugin" }?.get(1)
     }
 }
