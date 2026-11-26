@@ -172,8 +172,8 @@ fun NovelScreen(onBack: () -> Unit, embedded: Boolean = false, onFullScreenChang
         searchResults.submit(scope, sources.toList(), query)
     }
     val fullScreen = searching || !shelf || sourcePage || currentBook != null || text.isNotEmpty()
-    LaunchedEffect(fullScreen) { if (embedded) onFullScreenChange(fullScreen) }
-    DisposableEffect(Unit) { onDispose { if (embedded) onFullScreenChange(false) } }
+    LaunchedEffect(fullScreen) { onFullScreenChange(fullScreen) }
+    DisposableEffect(Unit) { onDispose { onFullScreenChange(false) } }
     fun work(block: suspend () -> Unit) {
         if (busy) return
         busy = true; error = null

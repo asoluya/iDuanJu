@@ -5,6 +5,7 @@ import app.iduanju.core.hongguo.HGPlayerDevice
 import app.iduanju.core.hongguo.HongguoClient
 import app.iduanju.data.LibraryStore
 import app.iduanju.data.SettingsStore
+import org.json.JSONArray
 
 class IdjApp : Application(), coil.ImageLoaderFactory {
     lateinit var settings: SettingsStore
@@ -42,6 +43,7 @@ class IdjApp : Application(), coil.ImageLoaderFactory {
         super.onCreate()
         instance = this
         settings = SettingsStore(this)
+        seedBuiltinNovelSources()
         app.iduanju.core.novel.NovelSources.configureStorage(filesDir)
         HGPlayerDevice.storageDir = filesDir
         app.iduanju.core.hongguo.HGNet.playerUsesSystemProxy = settings.playerUsesSystemProxy
@@ -61,6 +63,30 @@ class IdjApp : Application(), coil.ImageLoaderFactory {
         app.iduanju.core.hls.HLSAdFilter.enabled = settings.adStripEnabled
         updater = app.iduanju.update.AppUpdater(this)
         app.iduanju.core.novel.LegadoWebView.backstage = app.iduanju.novel.AndroidBackstageWebView(this)
+    }
+
+    /** One-time seed of the bundled novel book sources (assets/novel/builtin_sources.json): merged into the novel prefs by bookSourceUrl; the marker keeps it from ever running again, so sources the user deletes stay deleted. */
+    private fun seedBuiltinNovelSources() {
+        val prefs = getSharedPreferences("novel", MODE_PRIVATE)
+        if (prefs.getBoolean("builtinSeeded.v1", false)) return
+        Thread {
+            runCatching {
+                val builtin = JSONArray(assets.open("novel/builtin_sources.json").readBytes().toString(Charsets.UTF_8))
+                val current = runCatching { JSONArray(prefs.getString("sources", "[]") ?: "[]") }.getOrDefault(JSONArray())
+                val seen = HashSet<String>()
+                for (i in 0 until current.length()) current.optJSONObject(i)?.optString("bookSourceUrl")?.takeIf { it.isNotEmpty() }?.let { seen.add(it) }
+                var added = 0
+                for (i in 0 until builtin.length()) {
+                    val o = builtin.optJSONObject(i) ?: continue
+                    val url = o.optString("bookSourceUrl")
+                    if (url.isEmpty() || !seen.add(url)) continue
+                    current.put(o); added++
+                }
+                val e = prefs.edit().putBoolean("builtinSeeded.v1", true)
+                if (added > 0) e.putString("sources", current.toString())
+                e.apply()
+            }
+        }.start()
     }
 
     companion object {

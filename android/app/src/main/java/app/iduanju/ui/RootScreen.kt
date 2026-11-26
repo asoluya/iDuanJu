@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -61,8 +62,8 @@ import app.iduanju.ui.theme.IdjThemeColors
 import kotlinx.coroutines.flow.first
 import kotlin.math.roundToInt
 
-/** Dynamic root pages: 首页 + 我的, plus TVBox only after a TVBox config is imported. */
-private val RootRoutes = setOf("home", "tvbox", "profile")
+/** Dynamic root pages: 小说 + 首页 + 我的, plus TVBox only after a TVBox config is imported. */
+private val RootRoutes = setOf("novel", "home", "tvbox", "profile")
 
 /** Lets deep rows (继续观看 · 全部) open a route without threading callbacks through every page. */
 val LocalNavigate = androidx.compose.runtime.staticCompositionLocalOf<(String) -> Unit> { {} }
@@ -83,7 +84,7 @@ fun RootScreen(initialRoute: String? = null) {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { app.iduanju.ui.player.PlayerWarmup.run() }
     }
     val hasTvbox = app.iduanju.IdjApp.instance.tvbox.repos.isNotEmpty()
-    val tabRoutes = remember(hasTvbox) { if (hasTvbox) listOf("home", "tvbox", "profile") else listOf("home", "profile") }
+    val tabRoutes = remember(hasTvbox) { if (hasTvbox) listOf("novel", "home", "tvbox", "profile") else listOf("novel", "home", "profile") }
     var tab by remember { mutableIntStateOf(0) }
     var novelImmersive by remember { mutableStateOf(false) }
     val back = nav.currentBackStackEntryAsState().value
@@ -109,7 +110,7 @@ fun RootScreen(initialRoute: String? = null) {
                 smallestWidthDp = cfg.smallestScreenWidthDp,
             )
         }
-        val showChromeNav = atRoot && !(route == "home" && novelImmersive)
+        val showChromeNav = atRoot && !(route == "novel" && novelImmersive)
         var dockHidden by remember { mutableStateOf(false) }
         var scrollTick by remember { mutableIntStateOf(0) }
         LaunchedEffect(route, showChromeNav) { dockHidden = false }
@@ -146,6 +147,7 @@ fun RootScreen(initialRoute: String? = null) {
         }
         val navItems = remember(hasTvbox) {
             buildList<Pair<String, @Composable (Boolean) -> Unit>> {
+                add("小说" to { on -> Icon(Icons.Filled.MenuBook, null, Modifier.size(20.dp), tint = if (on) IdjThemeColors.text else dockLabel()) })
                 add("首页" to { on -> Icon(Icons.Filled.Home, null, Modifier.size(20.dp), tint = if (on) IdjThemeColors.text else dockLabel()) })
                 if (hasTvbox) add("TVBox" to { on -> Icon(Icons.Filled.LiveTv, null, Modifier.size(20.dp), tint = if (on) IdjThemeColors.text else dockLabel()) })
                 add("我的" to { on -> Icon(Icons.Filled.Person, null, Modifier.size(20.dp), tint = if (on) IdjThemeColors.text else dockLabel()) })
@@ -179,7 +181,7 @@ fun RootScreen(initialRoute: String? = null) {
         val navigate: (String) -> Unit = { r ->
             if (r.startsWith("home/")) {
                 app.iduanju.ui.home.HomeJump.label = mapOf("channels" to "频道", "manga" to "漫画")[r.removePrefix("home/")]
-                tab = 0
+                tab = tabRoutes.indexOf("home")
                 goHome()
             } else nav.navigate(r)
         }
@@ -216,7 +218,6 @@ fun RootScreen(initialRoute: String? = null) {
                                 onSearch = { nav.navigate("search") },
                                 onPlay = { nav.navigate(Routes.player(it, 0)) },
                                 onOpenManga = { nav.navigate("manga/" + android.net.Uri.encode(it)) },
-                                onImmersiveChanged = { novelImmersive = it },
                             )
                         }
                         composable("tvbox") {
@@ -245,7 +246,7 @@ fun RootScreen(initialRoute: String? = null) {
                         composable("sources") { app.iduanju.ui.profile.SourcesScreen(onBack = { nav.popBackStack() }) }
                         composable("plugins") { app.iduanju.ui.profile.PluginsScreen(onBack = { nav.popBackStack() }) }
                         composable("channels") { app.iduanju.tg.ChannelFeedPage(onPlay = { nav.navigate(Routes.player(it, 0)) }) }
-                        composable("novel") { app.iduanju.novel.NovelScreen(onBack = { nav.popBackStack() }) }
+                        composable("novel") { app.iduanju.novel.NovelScreen(onBack = { nav.popBackStack() }, onFullScreenChange = { novelImmersive = it }) }
                         composable("licenses") { app.iduanju.ui.profile.LicensesScreen(onBack = { nav.popBackStack() }) }
                         composable("actorRank") { app.iduanju.ui.profile.ActorRankScreen(onBack = { nav.popBackStack() }) }
                         composable("actor/{id}?name={name}&avatar={avatar}&role={role}&intro={intro}",

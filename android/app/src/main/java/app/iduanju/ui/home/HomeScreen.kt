@@ -168,15 +168,11 @@ internal fun homePages(): List<HomePageRef> {
     val app = IdjApp.instance
     val adult = app.cms.adultUnlocked
     fun built(s: HomeSource) = HomePageRef(s.name, s.label, s)
-    val novelPrefs = app.getSharedPreferences("novel", android.content.Context.MODE_PRIVATE)
-    val hasNovel = (novelPrefs.getString("sources", "[]") ?: "[]").length > 2 ||
-        (novelPrefs.getString("books", "[]") ?: "[]").length > 2
     val natural = buildList {
         app.cms.visibleSites.filterNot { it.origin.equals("TVBox", ignoreCase = true) || it.origin.startsWith("TVBox") }.forEach { add(HomePageRef("cms:" + it.key, it.name, it)) }
         app.plugins.visible(adult).filter { it.type == "video" || it.type == "shortdrama" }.forEach { add(HomePageRef("plugin:" + it.id, it.name, it)) }
         if (app.tg.visible(adult).isNotEmpty()) add(built(HomeSource.channels))
         if (app.manga.providers.isNotEmpty()) add(built(HomeSource.manga))
-        if (hasNovel) add(built(HomeSource.novel))
     }
     val order = app.settings.homePageOrder
     if (order.isEmpty()) return natural
@@ -202,12 +198,11 @@ internal fun rootBottomInset(): Dp =
     WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + if (LocalLayoutMetrics.current.useRail) 8.dp else 72.dp
 
 @Composable
-fun HomeScreen(onOpenDetail: (String) -> Unit, onSearch: () -> Unit = {}, onPlay: (String) -> Unit = {}, onOpenManga: (String) -> Unit = {}, onImmersiveChanged: (Boolean) -> Unit = {}) {
+fun HomeScreen(onOpenDetail: (String) -> Unit, onSearch: () -> Unit = {}, onPlay: (String) -> Unit = {}, onOpenManga: (String) -> Unit = {}) {
     val c = IdjThemeColors
     val pages by remember { derivedStateOf { homePages() } }
     if (pages.isEmpty()) {
         val go = app.iduanju.ui.LocalNavigate.current
-        LaunchedEffect(Unit) { onImmersiveChanged(false) }
         Box(Modifier.fillMaxSize().background(c.bg).statusBarsPadding().padding(bottom = rootBottomInset()), contentAlignment = Alignment.Center) {
             Column(
                 Modifier.padding(horizontal = 28.dp),
@@ -243,14 +238,14 @@ fun HomeScreen(onOpenDetail: (String) -> Unit, onSearch: () -> Unit = {}, onPlay
     val scrolled = remember { mutableStateMapOf<String, Boolean>() }
     val current by remember { derivedStateOf { pages[pager.currentPage.coerceIn(0, pages.size - 1)] } }
     val density = LocalDensity.current
-    // 漫画 / 小说 own their lists, so their scroll is followed from outside; the other feeds report it (ReportScrolled).
+    // 漫画 owns its list, so its scroll is followed from outside; the other feeds report it (ReportScrolled).
     val feedScrollConnection = remember(density) {
         val offsets = HashMap<String, Float>()
         val threshold = with(density) { 8.dp.toPx() }
         object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
             override fun onPostScroll(consumed: Offset, available: Offset, source: androidx.compose.ui.input.nestedscroll.NestedScrollSource): Offset {
                 val page = current
-                if (page.target != HomeSource.manga && page.target != HomeSource.novel) return Offset.Zero
+                if (page.target != HomeSource.manga) return Offset.Zero
                 val v = ((offsets[page.key] ?: 0f) - consumed.y).coerceAtLeast(0f)
                 offsets[page.key] = v
                 if ((scrolled[page.key] == true) != (v > threshold)) scrolled[page.key] = v > threshold
@@ -258,10 +253,6 @@ fun HomeScreen(onOpenDetail: (String) -> Unit, onSearch: () -> Unit = {}, onPlay
             }
         }
     }
-    var novelFullScreen by remember { mutableStateOf(false) }
-    val immersive by remember { derivedStateOf { current.target == HomeSource.novel && novelFullScreen } }
-    LaunchedEffect(immersive) { onImmersiveChanged(immersive) }
-    DisposableEffect(Unit) { onDispose { onImmersiveChanged(false) } }
     val pinned by remember { derivedStateOf { scrolled[current.key] == true } }
     val watchingTop by remember { derivedStateOf { IdjApp.instance.library.continueWatching.take(10) } }
 
@@ -275,9 +266,9 @@ fun HomeScreen(onOpenDetail: (String) -> Unit, onSearch: () -> Unit = {}, onPlay
     }
     Box(Modifier.fillMaxSize().background(c.bg)) {
         Box(Modifier.fillMaxSize().layerBackdrop(homeBackdrop)) { AmbientGlow(visible = !pinned) }
-        Column(Modifier.fillMaxSize().then(if (immersive) Modifier else Modifier.statusBarsPadding())) {
+        Column(Modifier.fillMaxSize().statusBarsPadding()) {
             // header: search + filter capsule
-            if (!immersive) Column(Modifier.dsPinned(pinned).padding(top = 6.dp)) {
+            Column(Modifier.dsPinned(pinned).padding(top = 6.dp)) {
                 Row(
                     Modifier.padding(horizontal = 16.dp).fillMaxWidth().height(IntrinsicSize.Min)
                         // same glass material as the dock / detail chrome (follows 我的 → 玻璃质感)
@@ -312,7 +303,7 @@ fun HomeScreen(onOpenDetail: (String) -> Unit, onSearch: () -> Unit = {}, onPlay
                     scope.launch { pager.animateScrollToPage(page) }
                 }
             }
-            HorizontalPager(pager, Modifier.fillMaxSize().nestedScroll(feedScrollConnection), userScrollEnabled = !immersive, beyondViewportPageCount = 0,
+            HorizontalPager(pager, Modifier.fillMaxSize().nestedScroll(feedScrollConnection), beyondViewportPageCount = 0,
                 key = { pages.getOrNull(it)?.key ?: it }) { index ->
                 val page = pages.getOrElse(index) { pages.first() }
                 val report = remember(page.key) { { on: Boolean -> if ((scrolled[page.key] == true) != on) scrolled[page.key] = on } }
@@ -322,7 +313,6 @@ fun HomeScreen(onOpenDetail: (String) -> Unit, onSearch: () -> Unit = {}, onPlay
                         is PluginStore.Installed -> PluginFeedPage(target, onOpenDetail)
                         HomeSource.huangguo -> app.iduanju.huangguo.HuangguoFeedPage(onOpenDetail)
                         HomeSource.manga -> app.iduanju.manga.MangaHomePage(onOpenManga)
-                        HomeSource.novel -> app.iduanju.novel.NovelScreen(onBack = {}, embedded = true, onFullScreenChange = { novelFullScreen = it })
                         HomeSource.channels -> app.iduanju.tg.ChannelFeedPage(onPlay)
                         HomeSource.ai -> AiPage(onOpenDetail)
                         else -> FeedPage(target as HomeSource, onOpenDetail)
