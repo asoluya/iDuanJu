@@ -61,6 +61,33 @@ final class GlassShotsUITests: XCTestCase {
         }
     }
 
+    /// Every home page rests below the floating header: cold start, after switching pages, and on the way back.
+    func testHomePages() {
+        bothAppearances {
+            launch(["STV_FIXTURE_SITES": "1", "STV_MANGA_FIXTURE": "1", "STV_TG_FIXTURE_DIR": Self.fixtures, "STV_TG_CHANNELS": "telegram,gallery", "STV_NOVEL_SEED": "x/novel_sample_gbk.txt"])
+            need("home.sub.全部榜单", 20)
+            restsBelowHeader("home.sub.全部榜单", under: "红果", "cold start")
+            shot("pages-1-cold")
+            for (name, page) in [("漫画", "manga.library"), ("小说", "novel.continue"), ("频道", "tg.search")] {
+                tap("home.channel.\(name)")
+                need(page)
+                if page != "novel.continue" { restsBelowHeader(page, under: name, name) } // that button sits inside the hero card
+                shot("pages-\(name)", settle: 1)
+            }
+            tap("home.channel.红果")
+            need("home.sub.全部榜单")
+            restsBelowHeader("home.sub.全部榜单", under: "红果", "back on 红果")
+            shot("pages-2-back")
+        }
+    }
+    /// The first row of a page starts below the channel bar, and not far below it.
+    private func restsBelowHeader(_ id: String, under channel: String, _ note: String, file: StaticString = #filePath, line: UInt = #line) {
+        Thread.sleep(forTimeInterval: 1)
+        let gap = el(id).frame.minY - el("home.channel.\(channel)").frame.maxY
+        XCTAssertGreaterThan(gap, 4, "\(note): content touches the channel bar", file: file, line: line)
+        XCTAssertLessThan(gap, 40, "\(note): content starts too low", file: file, line: line)
+    }
+
     func testReaderPanels() {
         bothAppearances {
             launch(["STV_HOME_TAB": "novel", "STV_NOVEL_SEED": "x/novel_sample_gbk.txt"])

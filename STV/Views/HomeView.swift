@@ -116,11 +116,39 @@ final class BoardCache {
 
 // MARK: - Floating header plumbing
 
-/// What the pages under the floating home header need: its height and where to report "scrolled".
+/// Vertical extent of a view in window coordinates, and the bottom safe area under it.
+struct VSpan: Equatable {
+    var top: CGFloat
+    var bottom: CGFloat
+    var inset: CGFloat = 0
+}
+
+/// Reports where a view really is. Frames scaled by a running navigation transition are skipped.
+private struct SpanReader: View {
+    @Binding var span: VSpan?
+    var body: some View {
+        GeometryReader { g in
+            let f = g.frame(in: .global)
+            let now = abs(f.width - g.size.width) < 0.5 ? VSpan(top: f.minY, bottom: f.maxY, inset: g.safeAreaInsets.bottom) : nil
+            Color.clear.onAppear { set(now) }.compatOnChange(of: now) { set($0) }
+        }
+    }
+    private func set(_ now: VSpan?) {
+        guard let now else { return }
+        if let s = span, abs(s.top - now.top) < 0.5, abs(s.bottom - now.bottom) < 0.5, abs(s.inset - now.inset) < 0.5 { return }
+        span = now
+    }
+}
+
+/// What the pages under the floating home header need: where their content rests and where to report "scrolled".
 struct HomeHeader {
-    var height: CGFloat = 0
-    /// Bottom safe area of the home page (tab bar included), which the pager itself ignores.
-    var bottom: CGFloat = 0
+    /// False outside 发现, where the same pages have a bar of their own.
+    var active = false
+    /// From the header's lower edge to the floating tab bar, in window coordinates; nil until the first layout.
+    var rest: VSpan?
+    /// Where the pager starts, and how far it reaches under the tab bar.
+    var pagerTop: CGFloat = 0
+    var tabBar: CGFloat = 0
     var onScrolled: (Bool) -> Void = { _ in }
 }
 
@@ -132,29 +160,30 @@ extension EnvironmentValues {
     }
 }
 
+/// Insets from geometry, not from assumptions: a pager cell's position and safe area differ between systems, so a page
+/// compares where its content would start and end with where the header and the tab bar really are.
 private struct HomePageInset: ViewModifier {
     @Environment(\.homeHeader) private var header
-    /// Bottom safe area the page already gets from its pager cell (differs between systems).
-    @State private var own: CGFloat = 0
+    @State private var own: VSpan?
+    /// A cell that is not on screen yet can report a frame of its own coordinate space: only believe plausible ones.
+    private var placed: VSpan? { own.flatMap { abs($0.top - header.pagerTop) < 40 ? $0 : nil } }
+    private var top: CGFloat {
+        guard let rest = header.rest else { return 114 }
+        return max(0, rest.top - (placed?.top ?? header.pagerTop))
+    }
+    private var bottom: CGFloat {
+        guard let rest = header.rest, let placed else { return header.tabBar }
+        return max(0, placed.bottom - rest.bottom)
+    }
     func body(content: Content) -> some View {
-        if header.height > 0 {
+        if header.active {
             content
-                .safeAreaInset(edge: .top, spacing: 0) { Color.clear.frame(height: header.height) }
-                .safeAreaInset(edge: .bottom, spacing: 0) { Color.clear.frame(height: max(0, header.bottom - own)) }
+                .safeAreaInset(edge: .top, spacing: 0) { Color.clear.frame(height: top) }
+                .safeAreaInset(edge: .bottom, spacing: 0) { Color.clear.frame(height: bottom) }
                 .compatOnScrolled(threshold: 6) { header.onScrolled($0) }
-                .background { BottomSafeArea(value: $own) }
+                .background { SpanReader(span: $own) }
         } else {
             content
-        }
-    }
-}
-
-private struct BottomSafeArea: View {
-    @Binding var value: CGFloat
-    var body: some View {
-        GeometryReader { g in
-            let b = g.safeAreaInsets.bottom
-            Color.clear.onAppear { value = b }.compatOnChange(of: b) { v in value = v }
         }
     }
 }
@@ -173,9 +202,16 @@ struct HomeView: View {
     /// Cached: building it walks every site, plugin and 采集站, and it used to run several times per body.
     @State private var sources: [HomeSource] = HomeSource.all
     @State private var scrolled: [HomeSource: Bool] = [:]
-    @State private var headerHeight: CGFloat = 122
-    @State private var bottomSafe: CGFloat = 0
+    @State private var headerSpan: VSpan?
+    @State private var safeSpan: VSpan?
     @State private var showChannels = false
+    private var rest: VSpan? {
+        guard let h = headerSpan, let s = safeSpan else { return nil }
+        return VSpan(top: h.bottom, bottom: s.bottom)
+    }
+    private var bottomInset: CGFloat { safeSpan?.inset ?? GlassTabBar.clearance + 34 }
+    /// Home-indicator part of the bottom safe area; the rest is the floating tab bar (none next to the iPad rail).
+    private var indicator: CGFloat { bottomInset >= GlassTabBar.clearance ? bottomInset - GlassTabBar.clearance : bottomInset }
     private var pinned: Bool { scrolled[source] ?? false }
 
     init() {
@@ -199,14 +235,22 @@ struct HomeView: View {
             ForEach(sources) { s in
                 // `Binding(get:)` reads eagerly, and 频道 / 漫画 / 小说 have no sub boards.
                 HomePage(source: s, tab: Binding(get: { subs[s] ?? s.subs.first ?? .hongguo(.all) }, set: { subs[s] = $0 }))
-                    .environment(\.homeHeader, HomeHeader(height: headerHeight, bottom: bottomSafe, onScrolled: { v in if scrolled[s] != v { scrolled[s] = v } }))
+                    .environment(\.homeHeader, HomeHeader(active: true, rest: rest, pagerTop: safeSpan?.top ?? 0, tabBar: bottomInset - indicator, onScrolled: { v in if scrolled[s] != v { scrolled[s] = v } }))
                     .tag(s)
             }
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
-        // A pager clips to its safe area: content ended in a hard line above the floating tab bar instead of running under it.
+        // Pages run under the floating tab bar and dissolve behind its lower edge. The pager stops at the home indicator:
+        // iOS 26 centres pages in the UIKit safe region, so overlapping the indicator lifts every page by half its inset.
+        .overlay(alignment: .bottom) {
+            if bottomInset > indicator {
+                LinearGradient(colors: [STVTheme.bg.opacity(0), STVTheme.bg], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 36).allowsHitTesting(false)
+            }
+        }
+        .padding(.bottom, indicator)
         .ignoresSafeArea(.container, edges: .bottom)
-        .background { BottomSafeArea(value: $bottomSafe) }
+        .background { SpanReader(span: $safeSpan).ignoresSafeArea(.keyboard) }
         .overlay(alignment: .top) { header }
         .dsAmbient(visible: !pinned)
         .toolbar(.hidden, for: .navigationBar)
@@ -275,7 +319,7 @@ struct HomeView: View {
         .padding(.top, 8)
         .padding(.bottom, 8)
         .background { LiquidEdgeFade(visible: pinned) }
-        .compatOnSize { if abs($0.height - headerHeight) > 0.5 { headerHeight = $0.height } }
+        .background { SpanReader(span: $headerSpan) }
     }
 
     private var channelPanel: some View {
