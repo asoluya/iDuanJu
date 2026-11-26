@@ -47,7 +47,7 @@ class SettingsStore(ctx: Context) {
         List(a.length()) { a.getString(it) }
     }.getOrDefault(emptyList())
 
-    fun setHomePageOrder(keys: List<String>) {
+    fun saveHomePageOrder(keys: List<String>) {
         homePageOrder = keys
         sp.edit().putString("home.pageOrder", JSONArray(keys).toString()).apply()
     }

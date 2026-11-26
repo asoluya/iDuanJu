@@ -87,7 +87,7 @@ private fun HomeOrderGroup() {
     var pages by remember { mutableStateOf(homePages()) }
     fun apply(list: List<app.iduanju.ui.home.HomePageRef>) {
         pages = list
-        ia.settings.setHomePageOrder(list.map { it.key })
+        ia.settings.saveHomePageOrder(list.map { it.key })
     }
     Group("首页频道顺序", footer = "调整首页顶部频道排的先后顺序，立即生效；之后新增的频道会自动排在末尾。") {
         if (pages.size < 2) {
@@ -111,7 +111,7 @@ private fun HomeOrderGroup() {
             if (ia.settings.homePageOrder.isNotEmpty()) {
                 RowDivider()
                 Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp)) {
-                    TextAction("恢复默认顺序") { ia.settings.setHomePageOrder(emptyList()); pages = homePages() }
+                    TextAction("恢复默认顺序") { ia.settings.saveHomePageOrder(emptyList()); pages = homePages() }
                 }
             }
         }
