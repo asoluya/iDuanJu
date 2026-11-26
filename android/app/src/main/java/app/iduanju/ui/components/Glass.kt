@@ -137,7 +137,8 @@ val LocalRootBackdrop = compositionLocalOf<Backdrop?> { null }
 private class GlassPalette(private val dark: Boolean) {
     private val liquidBase = if (dark) Color.Black else Color.White
     /** Lens-path tint: 0.58 / 0.56 at 通透度 0 → 0.05 / 0.03 at 100 %. */
-    fun liquidTint(s: Float) = liquidBase.copy(alpha = if (dark) glassLerp(0.58f, 0.05f, s) else glassLerp(0.56f, 0.03f, s))
+    fun liquidTint(s: Float, least: Float) =
+        liquidBase.copy(alpha = (if (dark) glassLerp(0.58f, 0.05f, s) else glassLerp(0.56f, 0.03f, s)).coerceAtLeast(least))
     val frostTint = if (dark) Color(0xFF1C1E24).copy(alpha = 0.72f) else Color.White.copy(alpha = 0.68f)
     val frostFallback = if (dark) Color(0xFF1C1E24).copy(alpha = 0.84f) else Color.White.copy(alpha = 0.90f)
     val rimTop = Color.White.copy(alpha = if (dark) 0.26f else 0.60f)
@@ -156,7 +157,8 @@ private class GlassPalette(private val dark: Boolean) {
  *   denser frosted fill + soft hairline for FROSTED). [fallbackAlpha] scales the sheer LIQUID fallback fill
  *   (x0.36 → 0.18..0.44 dark, x0.28 → 0.14..0.36 light); FROSTED always uses its high-readability fill.
  *
- * [dark] forces the dark palette (player chrome); [base] is the surface colour of LIQUID fallbacks.
+ * [dark] forces the dark palette (player chrome); [base] is the surface colour of LIQUID fallbacks. [veil] is the least
+ * tint whatever the 通透度: bars that carry small labels over pictures stay readable.
  */
 @Composable
 fun Modifier.glassSurface(
@@ -168,6 +170,7 @@ fun Modifier.glassSurface(
     activeOverlay: Color = Color.Transparent,
     fallbackAlpha: Float = 0.90f,
     highlightAlpha: Float = 0.50f,
+    veil: Float = 0f,
 ): Modifier {
     val frosted = GlassStylePref.style == GlassStyle.FROSTED
     val s = GlassStylePref.strength
@@ -175,7 +178,7 @@ fun Modifier.glassSurface(
     val canBlur = backdrop != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
     val hasLens = canBlur && !frosted && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU
     val shadowColor = p.shadow
-    val noLensTint = base.copy(alpha = ((if (dark) 0.50f else 0.54f) * liquidFillScale(s)).coerceIn(0.10f, 0.90f))
+    val noLensTint = base.copy(alpha = ((if (dark) 0.50f else 0.54f) * liquidFillScale(s)).coerceIn(maxOf(0.10f, veil), 0.90f))
     val edge = if (frosted) {
         Modifier.border(0.7.dp, p.frostBorder, shape)
     } else {
@@ -189,7 +192,7 @@ fun Modifier.glassSurface(
                 effects = {
                     vibrancy()
                     if (hasLens) {
-                        blur(glassLerp(12f, 1f, s).dp.toPx())
+                        blur(glassLerp(12f, 1f, s).coerceAtLeast(if (veil > 0f) 9f else 0f).dp.toPx())
                         lens(
                             refractionHeight = glassLerp(8f, 14f, s).dp.toPx(),
                             refractionAmount = glassLerp(12f, 32f, s).dp.toPx(),
@@ -223,7 +226,7 @@ fun Modifier.glassSurface(
                     drawRect(
                         when {
                             frosted -> p.frostTint
-                            hasLens -> p.liquidTint(s)
+                            hasLens -> p.liquidTint(s, veil)
                             else -> noLensTint
                         },
                     )
@@ -244,7 +247,7 @@ fun Modifier.glassSurface(
                     // crystal-clear sheer glass + liquid-lens specular: bright top rim sheen -> clear centre -> bottom caustic
                     // 通透度 sets the density (0.68 / 0.72 at 0 → 0.16 / 0.12 at 100 %); [fallbackAlpha] scales it per surface.
                     val sheer = if (dark) glassLerp(0.68f, 0.16f, s) else glassLerp(0.72f, 0.12f, s)
-                    val liquidAlpha = (sheer * fallbackAlpha / 0.90f).coerceIn(0.06f, 0.80f)
+                    val liquidAlpha = (sheer * fallbackAlpha / 0.90f).coerceIn(maxOf(0.06f, veil), 0.80f)
                     Modifier
                         .background(base.copy(alpha = liquidAlpha))
                         .background(
@@ -261,6 +264,14 @@ fun Modifier.glassSurface(
             .then(if (frosted) edge else Modifier.border(1.dp, Brush.verticalGradient(listOf(p.rimTop, p.rimBottom)), shape))
     }
 }
+
+/** Tint floor of the tab bar and the rail. */
+@Composable
+fun dockVeil(): Float = if (IdjThemeColors.dark) 0.50f else 0.62f
+
+/** Unselected tab: stronger than secondary, as pictures move under the glass. */
+@Composable
+fun dockLabel(): Color = IdjThemeColors.text.copy(alpha = 0.76f)
 
 /**
  * Top->bottom specular rim of a Liquid Glass capsule. With [accent] the rim glows in that colour (selected chips).
@@ -352,7 +363,7 @@ fun GlassIconButton(
             .pressClick(0.92f, enabled = enabled, label = label, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, label, tint = tint, modifier = Modifier.size(iconSize))
+        Icon(icon, null, tint = tint, modifier = Modifier.size(iconSize))
     }
 }
 
@@ -596,7 +607,7 @@ fun GlassNavigationRail(
         Column(
             Modifier
                 .width(68.dp)
-                .glassSurface(shape = RailShape, backdrop = backdrop, shadowRadius = 14.dp)
+                .glassSurface(shape = RailShape, backdrop = backdrop, shadowRadius = 14.dp, veil = dockVeil())
                 .padding(vertical = 10.dp, horizontal = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -628,7 +639,7 @@ fun GlassNavigationRail(
                     Spacer(Modifier.height(3.dp))
                     Text(
                         label,
-                        color = if (on) c.text else c.secondary,
+                        color = if (on) c.text else dockLabel(),
                         fontSize = 11.sp,
                         lineHeight = 13.sp,
                         maxLines = 1,

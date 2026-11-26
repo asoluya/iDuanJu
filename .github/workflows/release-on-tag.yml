@@ -78,6 +78,10 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: gradle/actions/setup-gradle@v4
+      # Chaquopy compiles the bundled Python sources with the same minor version it embeds.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - name: Restore distribution signing key
         env:
           KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -95,7 +99,7 @@ jobs:
         run: |
           chmod +x gradlew
           for attempt in 1 2 3; do
-            ./gradlew :app:assembleRelease --stacktrace && exit 0
+            ./gradlew :app:assembleRelease -Pidj.python=true --stacktrace && exit 0
             if [ "$attempt" -eq 3 ]; then exit 1; fi
             sleep $((attempt * 20))
           done

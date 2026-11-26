@@ -54,8 +54,10 @@ struct PlayerScreen: View {
     @State private var lastStepOffset = 0
     @State private var padDrawerOpen = true
     @State private var nextDramaPick: NextDramaPick?
-    /// Feed content offset (pt): the shared video layer rides along with the page in either orientation.
-    @State private var feedScrollY: CGFloat = 0
+    @State private var favoriteTick = 0
+    /// Feed content offset: the shared video layer rides along with the page. Held as a plain reference so a scrolling
+    /// feed moves the video layer only and never re-evaluates this page.
+    @State private var feed = FeedOffset()
     /// Running double-tap seek (+10/+20/… s) and which side it is on; drives the side bubble.
     @State private var seekRun: (total: Int, at: Date)?
     @Environment(\.verticalSizeClass) private var vClass
@@ -106,15 +108,18 @@ struct PlayerScreen: View {
                 ZStack(alignment: .topLeading) {
                     Color.black
                     // A single in-window layer remains the PiP source across paging, rotation and buffering.
-                    PlayerLayerView(coordinator: co, fill: fillScreen, engine: co.engineKind)
-                        .accessibilityElement(children: .contain).accessibilityIdentifier(suppliedDetail == nil ? "player.video" : "novel.media.status").accessibilityValue(suppliedDetail == nil ? (fillScreen ? "fill" : "fit") : String(format: "已播放 %.2f 秒", co.time))
-                        .frame(width: area.width, height: area.height).offset(x: area.minX, y: area.minY - pageDrift(co.current ?? 0, page: full.height))
-                        .allowsHitTesting(false)
+                    FeedDrift(feed: feed, index: co.current ?? 0, page: full.height) {
+                        videoLayer.frame(width: area.width, height: area.height)
+                    }
+                    .offset(x: area.minX, y: area.minY)
+                    .allowsHitTesting(false)
                     if let held = co.heldFrame {
                         // Previous episode's last frame, riding with the swipe until the next one is on screen.
-                        Image(uiImage: held.image).resizable()
-                            .frame(width: area.width, height: area.height).offset(x: area.minX, y: area.minY - pageDrift(held.index, page: full.height))
-                            .allowsHitTesting(false).accessibilityHidden(true)
+                        FeedDrift(feed: feed, index: held.index, page: full.height) {
+                            Image(uiImage: held.image).resizable().frame(width: area.width, height: area.height)
+                        }
+                        .offset(x: area.minX, y: area.minY)
+                        .allowsHitTesting(false).accessibilityHidden(true)
                     }
                     Group {
                         if co.current != nil {
@@ -122,24 +127,17 @@ struct PlayerScreen: View {
                         } else if let loadError {
                             ErrorStateView(error: loadError) { Task { await load() } }
                         } else {
-                            PosterBackdrop(url: series.cover).overlay(ProgressView().tint(.white))
+                            Group { if series.cover.isEmpty { Color.black } else { PosterBackdrop(url: series.cover) } }
+                                .overlay(PlayerLoading())
                         }
                     }
                     .frame(width: full.width, height: full.height)
-                    if let sub = co.subtitleText, !co.pipActive {
-                        // Aether loopback / software routes: the host draws the selected track's cues.
-                        VStack {
-                            Spacer()
-                            Text(sub).font(.system(size: landscape ? 18 : 16, weight: .semibold)).foregroundStyle(.white)
-                                .multilineTextAlignment(.center).shadow(color: .black, radius: 2).shadow(color: .black.opacity(0.8), radius: 4)
-                                .padding(.horizontal, 24)
-                                .padding(.bottom, (landscape ? 70 : 200) + ins.bottom)
-                                .accessibilityIdentifier("player.subtitle")
-                        }
-                        .frame(width: full.width, height: full.height).allowsHitTesting(false)
+                    if !co.pipActive {
+                        PlayerSubtitleOverlay(telemetry: co.telemetry, landscape: landscape, bottom: (landscape ? 70 : 200) + ins.bottom)
+                            .frame(width: full.width, height: full.height)
                     }
                     let previewDanmaku = panel == .danmaku
-                    if series.source == .hongguo, !co.pipActive, !speedMode,
+                    if danmakuAvailable, !co.pipActive, !speedMode,
                        (previewDanmaku || (danmaku.enabled && co.current != nil && co.readyIndex == co.current)) {
                         danmakuLayer(co.current ?? 0, full: full, ins: ins, previewActive: previewDanmaku)
                     }
@@ -148,7 +146,7 @@ struct PlayerScreen: View {
                         gradients(full)
                     }
                     if panel != nil {
-                        Color.black.opacity(previewDanmaku ? 0.001 : 0.5).frame(width: full.width, height: full.height)
+                        Color.black.opacity(previewDanmaku ? 0.001 : 0.32).frame(width: full.width, height: full.height)
                             .contentShape(Rectangle()).onTapGesture { closePanel() }
                             .accessibilityIdentifier("player.scrim")
                     }
@@ -176,12 +174,8 @@ struct PlayerScreen: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.96)))
                     }
                     if co.pipActive {
-                        Button { co.togglePiP() } label: {
-                            Label("返回播放器", systemImage: "pip.exit")
-                                .padding(.horizontal, 20).padding(.vertical, 12)
-                                .background(STVTheme.surface, in: Capsule())
-                        }
-                        .foregroundStyle(.white)
+                        Button { co.togglePiP() } label: { PlayerGlassPill(title: "返回播放器", symbol: "pip.exit", height: 46) }
+                        .buttonStyle(PressScale())
                         .position(x: full.width / 2, y: full.height / 2)
                     } else {
                         if locked {
@@ -203,15 +197,16 @@ struct PlayerScreen: View {
                         Label("\(run.total > 0 ? "+" : "−")\(abs(run.total)) 秒", systemImage: run.total > 0 ? "forward.fill" : "backward.fill")
                             .font(.subheadline.weight(.semibold)).foregroundStyle(.white)
                             .padding(.horizontal, 16).padding(.vertical, 10)
-                            .background(.black.opacity(0.55), in: Capsule())
+                            .liquidGlassCapsule(tone: .clear, onMedia: true)
                             .position(x: run.total > 0 ? full.width * 0.75 : full.width * 0.25, y: landscape ? full.height / 2 - 70 : rect.midY - 70)
                             .transition(.opacity).allowsHitTesting(false)
                             .accessibilityIdentifier("player.seekRun")
                     }
                     if let osd {
-                        Text(osd).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                        Text(osd).font(.subheadline.weight(.semibold)).foregroundStyle(.white).multilineTextAlignment(.center)
                             .padding(.horizontal, 16).padding(.vertical, 10)
-                            .background(.black.opacity(0.62), in: Capsule())
+                            .liquidGlass(corner: 20, tone: .panel, onMedia: true)
+                            .padding(.horizontal, 24)
                             .position(x: full.width / 2, y: landscape ? full.height / 2 : rect.midY - 70)
                             .transition(.opacity).allowsHitTesting(false).accessibilityIdentifier("player.osd")
                     }
@@ -228,14 +223,9 @@ struct PlayerScreen: View {
                     }
                     if canShowPadSplit && !padDrawerOpen && controlsVisible {
                         Button { withAnimation(.compatSnappy) { padDrawerOpen = true } } label: {
-                            Text("展开选集")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 14).padding(.vertical, 8)
-                                .background(Color(red: 0.08, green: 0.09, blue: 0.12).opacity(0.75), in: Capsule())
-                                .overlay(Capsule().strokeBorder(Color.white.opacity(0.16), lineWidth: 1))
+                            PlayerGlassPill(title: "展开选集", symbol: "sidebar.trailing")
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(PressScale())
                         .position(x: full.width - 58 - ins.trailing, y: ins.top + 32)
                     }
                 }
@@ -259,7 +249,6 @@ struct PlayerScreen: View {
         .statusBarHidden(landscape || !controlsVisible || panel == .danmaku)
         .preferredColorScheme(.dark)
         .persistentSystemOverlays(.hidden)
-        .animation(.easeOut(duration: 0.18), value: panel)
         .task(id: co.current) {
             guard !series.source.isLongVideo, suppliedDetail == nil, co.autoNextDrama,
                   let cur = co.current, let d = co.detail, !co.episodes.isEmpty,
@@ -287,9 +276,9 @@ struct PlayerScreen: View {
             co.didBecomeActive()
             flashChrome()
         }
-        .alert("画中画暂不可用", isPresented: Binding(get: { co.pipError != nil }, set: { if !$0 { co.pipError = nil } })) {
-            Button("好") { co.pipError = nil }
-        } message: { Text(co.pipError ?? "") }
+        .dsDialog("画中画暂不可用", isPresented: Binding(get: { co.pipError != nil }, set: { if !$0 { co.pipError = nil } }), message: co.pipError) {
+            [.primary("好") { co.pipError = nil }]
+        }
         .onAppear {
             StatusBarGate.shared.setHidden(landscape || !controlsVisible || panel == .danmaku, animated: false)
         }
@@ -302,8 +291,18 @@ struct PlayerScreen: View {
             adjuster.restoreBrightness()
             OrientationGate.lockPortrait()
         }
+        .compatOnChange(of: co.notice) { text in
+            guard let text else { return }
+            showOSD(text)
+            co.notice = nil
+        }
         .compatOnChange(of: co.current) { new in
             scrubbing = false
+            if let new, co.channelList, co.episodes.indices.contains(new) {
+                LiveHooks.remember(co.episodes[new], in: series)
+                showOSD("\(new + 1)  \(co.episodes[new].title)")
+                return
+            }
             if new != nil {
                 centerSuppressed = true
                 if co.lastAdvanceWasAuto {
@@ -348,12 +347,12 @@ struct PlayerScreen: View {
 
     private func gradients(_ full: CGSize) -> some View {
         VStack(spacing: 0) {
-            LinearGradient(stops: [.init(color: .black.opacity(0.45), location: 0), .init(color: .black.opacity(0.16), location: 0.42), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom)
-                .frame(height: landscape ? 72 : 110)
+            LinearGradient(stops: [.init(color: .black.opacity(landscape ? 0.62 : 0.45), location: 0), .init(color: .black.opacity(landscape ? 0.30 : 0.16), location: 0.5), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom)
+                .frame(height: landscape ? 104 : 110)
             Spacer(minLength: 0)
-            LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black.opacity(0.16), location: 0.42),
-                                   .init(color: .black.opacity(0.45), location: 1)], startPoint: .top, endPoint: .bottom)
-                .frame(height: landscape ? 100 : 150)
+            LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black.opacity(landscape ? 0.34 : 0.16), location: 0.5),
+                                   .init(color: .black.opacity(landscape ? 0.62 : 0.45), location: 1)], startPoint: .top, endPoint: .bottom)
+                .frame(height: landscape ? 128 : 150)
         }
         .frame(width: full.width, height: full.height)
         .allowsHitTesting(false)
@@ -374,7 +373,7 @@ struct PlayerScreen: View {
             avoidSubtitle: danmaku.avoidSubtitle
         )
         let vid = co.episodes.indices.contains(i) ? co.episodes[i].vid : ""
-        return DanmakuOverlay(co: co, seriesId: series.seriesId, vid: vid, landscape: landscape, laneTop: r.top, laneCount: r.rows, previewActive: previewActive)
+        return DanmakuOverlay(co: co, seriesId: series.seriesId, vid: vid, source: co.danmakuURL[i], landscape: landscape, laneTop: r.top, laneCount: r.rows, previewActive: previewActive)
             .onAppear { if ins.top > stableSafeTop { stableSafeTop = ins.top } }
             .compatOnChange(of: ins.top) { newTop in if newTop > stableSafeTop { stableSafeTop = newTop } }
             .frame(width: full.width, height: full.height)
@@ -408,7 +407,7 @@ struct PlayerScreen: View {
             .scrollTargetBehavior(.paging)
             .scrollIndicators(.hidden)
             .scrollPosition(id: Binding(get: { co.current }, set: { co.select($0) }), anchor: .center)
-            .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y }) { _, y in feedScrollY = y }
+            .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y }) { _, y in feed.y = y }
             .compatOnChange(of: co.readyIndex) { releaseHeldIfSettled() }
             .onScrollPhaseChange { _, phase in feedSettled = phase == .idle; releaseHeldIfSettled() }
             .accessibilityIdentifier("player.feed")
@@ -429,7 +428,7 @@ struct PlayerScreen: View {
                         .onChanged { val in
                             guard !isScrollDisabled, abs(val.translation.height) > abs(val.translation.width) else { return }
                             feedSettled = false
-                            feedScrollY = CGFloat(co.current ?? 0) * pageH - val.translation.height
+                            feed.y = CGFloat(co.current ?? 0) * pageH - val.translation.height
                         }
                         .onEnded { val in
                             guard !isScrollDisabled else { return }
@@ -443,7 +442,7 @@ struct PlayerScreen: View {
                             }
                             if next != cur { co.select(next) }
                             withAnimation(.spring(response: 0.28, dampingFraction: 0.88)) {
-                                feedScrollY = CGFloat(next) * pageH
+                                feed.y = CGFloat(next) * pageH
                             }
                             feedSettled = true
                             releaseHeldIfSettled()
@@ -451,8 +450,8 @@ struct PlayerScreen: View {
                 )
                 .compatOnChange(of: co.current) { new in
                     if let new {
-                        feedScrollY = CGFloat(new) * pageH
-                        if co.episodes.indices.contains(new) { showOSD("第\(co.episodes[new].ep)集") }
+                        feed.y = CGFloat(new) * pageH
+                        if co.episodes.indices.contains(new), !co.isLive { showOSD("第\(co.episodes[new].ep)集") }
                     }
                 }
                 .compatOnChange(of: co.readyIndex) { releaseHeldIfSettled() }
@@ -477,30 +476,17 @@ struct PlayerScreen: View {
                     Text("收起")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(STVTheme.accent)
-                        .padding(.horizontal, 10).padding(.vertical, 4)
+                        .padding(.horizontal, 12).frame(height: 30)
                         .background(STVTheme.accentSoft, in: Capsule())
+                        .contentShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressScale())
             }
             EpisodePickerSheet(episodes: co.episodes, ranges: ranges, current: curIdx) { i in
                 co.select(i)
             }
             .frame(maxHeight: .infinity)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("当前解码与音轨")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.6))
-                let parts = [co.tech?.resolution, co.tech?.hdr == true ? "HDR / DV" : nil, co.tech?.codec, co.tech?.audio]
-                    .compactMap { $0 }.filter { !$0.isEmpty }
-                Text(parts.isEmpty ? "MPVKit (DV / DTS) 就绪" : parts.joined(separator: " · "))
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(STVTheme.accent)
-                    .lineLimit(2)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.white.opacity(0.09), lineWidth: 1))
+            PlayerDecodeSummary(telemetry: co.telemetry, engine: co.engineKind)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 18)
@@ -519,10 +505,18 @@ struct PlayerScreen: View {
     /// the pre-decoded `firstFrames[i]` cover lifts, preventing any 1-frame black flash.
     @State private var revealedIndex: Int?
 
-    /// Offset of page `index` from rest, capped at one page either way.
-    private func pageDrift(_ index: Int, page: CGFloat) -> CGFloat {
-        guard page > 0 else { return 0 }
-        return max(-page, min(page, feedScrollY - CGFloat(index) * page))
+    /// The single in-window video layer: PiP source across paging, rotation and buffering.
+    @ViewBuilder private var videoLayer: some View {
+        let layer = PlayerLayerView(coordinator: co, fill: fillScreen, engine: co.engineKind).accessibilityElement(children: .contain)
+        if suppliedDetail == nil {
+            layer.accessibilityIdentifier("player.video").accessibilityValue(fillScreen ? "fill" : "fit")
+        } else {
+            layer.accessibilityIdentifier("novel.media.status").modifier(PlayerClockValue(clock: co.clock))
+        }
+    }
+
+    private var danmakuAvailable: Bool {
+        series.source == .hongguo || co.current.flatMap { co.danmakuURL[$0] } != nil
     }
 
     private func stage(_ i: Int) -> some View {
@@ -548,6 +542,7 @@ struct PlayerScreen: View {
             }
             PlayerTouchCatcher(
                 playbackReady: co.readyIndex == i, edgeBackWidth: edgeBackWidth, speedMode: speedMode, locked: locked,
+                speedEnabled: !co.isLive,
                 onTap: handleTap,
                 onDoubleTap: handleDoubleTap,
                 onSpeedBegan: enterSpeedMode,
@@ -566,15 +561,13 @@ struct PlayerScreen: View {
             )
             if co.readyIndex != i {
                 if let error = co.errors[i] {
-                    VStack(spacing: 12) {
-                        Text(error).font(.footnote).multilineTextAlignment(.center)
-                        if let t = co.verifyTargets[i] {
-                            Button("去验证") { verifyTarget = t }.buttonStyle(.borderedProminent)
-                        }
-                        Button("重试") { co.activate(i) }.buttonStyle(.borderedProminent)
-                    }.padding(32)
+                    PlayerErrorCard(message: error, canVerify: co.verifyTargets[i] != nil,
+                                    hasLines: co.lines.count > 1 || (co.streams[i]?.count ?? 0) > 1,
+                                    onVerify: { verifyTarget = co.verifyTargets[i] },
+                                    onLines: { toggle(.quality) },
+                                    onRetry: { co.retry(i) })
                 } else if i == co.current, showLoadingSpinner {
-                    ProgressView("正在载入分集").tint(.white).allowsHitTesting(false).accessibilityIdentifier("player.loading")
+                    PlayerLoading(text: co.isLive ? "正在连接" : "正在载入分集").allowsHitTesting(false).accessibilityIdentifier("player.loading")
                 }
             }
         }
@@ -604,14 +597,7 @@ struct PlayerScreen: View {
     private func compactChrome(_ full: CGSize, ins: EdgeInsets) -> some View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
-            GeometryReader { g in
-                ZStack(alignment: .leading) {
-                    Color.white.opacity(0.18)
-                    Color.white.opacity(0.6).frame(width: g.size.width * max(0, min(1, co.duration > 0 ? co.time / co.duration : 0)))
-                }
-            }
-            .frame(height: 2)
-            .accessibilityIdentifier("player.compactProgress")
+            if !co.isLive { PlayerCompactProgress(clock: co.clock) }
         }
         .frame(width: full.width, height: full.height)
         .allowsHitTesting(false)
@@ -627,33 +613,32 @@ struct PlayerScreen: View {
 
     private func portraitControls(_ full: CGSize, ins: EdgeInsets, chrome: Bool, interactive: Bool) -> some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                PlayerIconButton(symbol: "chevron.left", label: "返回") { exitPlayer() }
-                Spacer()
-                PlayerIconButton(symbol: "pip.enter", label: "画中画") { co.togglePiP() }
-                    .disabled(!co.pipPossible).opacity(co.pipPossible ? 1 : 0.55)
-                    .accessibilityIdentifier("player.pip")
-                if suppliedDetail == nil { PlayerIconButton(symbol: library.isFavorite(series) ? "heart.fill" : "heart",
-                                 label: library.isFavorite(series) ? "取消收藏" : "收藏") {
-                    library.toggleFavorite(series); flashChrome()
-                } }
-                PlayerIconButton(symbol: "ellipsis", label: "更多", tint: panel == .more ? STVTheme.accent : .white) {
-                    toggle(.more)
+            LiquidGlassGroup(spacing: 12) {
+                HStack(spacing: 12) {
+                    PlayerIconButton(symbol: "chevron.left", label: "返回") { exitPlayer() }
+                    Spacer()
+                    PlayerIconCluster {
+                        PlayerClusterIcon(symbol: "pip.enter", label: "画中画") { co.togglePiP() }
+                            .disabled(!co.pipPossible).opacity(co.pipPossible ? 1 : 0.5)
+                            .accessibilityIdentifier("player.pip")
+                        if suppliedDetail == nil { favoriteIcon }
+                        PlayerClusterIcon(symbol: "ellipsis", label: "更多", tint: panel == .more ? STVTheme.accent : .white) { toggle(.more) }
+                            .accessibilityIdentifier("player.more")
+                    }
                 }
-                .accessibilityIdentifier("player.more")
             }
             .padding(.horizontal, 16).padding(.top, ins.top)
             .opacity(dim)
             .modifier(ChromeFade(on: chrome))
-            if showTech, let t = co.tech {
-                PlayerTechStrip(tech: t).padding(.top, 14).opacity(dim).modifier(ChromeFade(on: chrome))
+            if showTech {
+                PlayerTechStrip(telemetry: co.telemetry).padding(.top, 14).opacity(dim).modifier(ChromeFade(on: chrome))
             }
             Spacer(minLength: 0)
             if let i = co.current, co.episodes.indices.contains(i) {
                 VStack(alignment: .leading, spacing: 0) {
                     Group {
                         meta(i, skip: true).padding(.bottom, 8).opacity(scrubbing ? 0 : 1).modifier(ChromeFade(on: chrome, keepAccessible: true))
-                        Text(co.detail?.title ?? series.title)
+                        Text(mainTitle(i))
                             .font(.system(size: 21, weight: .bold)).lineLimit(1)
                             .shadow(color: .black.opacity(chrome ? 0 : 0.7), radius: 3)
                             .accessibilityIdentifier("player.title")
@@ -661,7 +646,16 @@ struct PlayerScreen: View {
                             .padding(.bottom, 10)
                     }
                     .opacity(panel != nil ? 0.35 : 1)
-                    Group {
+                    if co.isLive {
+                        HStack(spacing: 10) {
+                            PlayerProgramLine(series: series, channel: co.episodes[i])
+                            Spacer(minLength: 8)
+                            PlayerFullscreenButton { OrientationGate.enterLandscape(); flashChrome() }
+                        }
+                        .frame(height: 30)
+                        .opacity(panel != nil ? 0.35 : 1)
+                        .allowsHitTesting(interactive)
+                    } else {
                         PlayerTimelineV3(co: co, scrubbing: $scrubbing, onInteract: flashChrome,
                                          onFullscreen: { OrientationGate.enterLandscape(); flashChrome() }).id(i)
                             .opacity(panel != nil ? 0.35 : 1)
@@ -670,8 +664,8 @@ struct PlayerScreen: View {
                     }
                 }
                 .padding(.horizontal, 20)
-                actionRow(i).padding(.horizontal, 12).padding(.top, 10)
-                    .padding(.bottom, max(0, ins.bottom - 6))
+                PlayerActionBar(actions: actions(i)).padding(.horizontal, 12).padding(.top, 12)
+                    .padding(.bottom, max(8, ins.bottom - 4))
                     .opacity(dim)
                     .modifier(ChromeFade(on: chrome))
             }
@@ -681,72 +675,94 @@ struct PlayerScreen: View {
         .modifier(ChromeFade(on: chrome))
     }
 
-    /// Redesign 17: title + episode sit beside 返回; tech line, 连播 switch, lock and exit on the right;
-    /// full-width progress row, then 跳过片头 on the left and five labelled glass chips on the right.
-    /// Full title/info and scrubber auto-hide; compactChrome supplies the always-on overlay.
+    private func mainTitle(_ i: Int) -> String {
+        if let r = co.replay { return r.title }
+        return co.channelList ? co.episodes[i].title : (co.detail?.title ?? series.title)
+    }
+
+    @ViewBuilder private var favoriteIcon: some View {
+        if co.channelList {
+            if let i = co.current, co.episodes.indices.contains(i) {
+                let on = LiveHooks.isFavorite(co.episodes[i])
+                PlayerClusterIcon(symbol: on ? "star.fill" : "star", label: on ? "取消收藏" : "收藏", tint: on ? STVTheme.accentWarm : .white) {
+                    LiveHooks.toggleFavorite(co.episodes[i])
+                    favoriteTick += 1
+                    flashChrome()
+                }
+                .id(favoriteTick)
+            }
+        } else {
+            let on = library.isFavorite(series)
+            PlayerClusterIcon(symbol: on ? "heart.fill" : "heart", label: on ? "取消收藏" : "收藏") {
+                library.toggleFavorite(series); flashChrome()
+            }
+        }
+    }
+
+    /// Title + episode sit beside 返回; tech line, 连播 switch, lock and exit on the right; full-width progress row, then
+    /// 跳过片头 on the left and the labelled glass chips on the right. `compactChrome` is the always-on overlay.
     private func landscapeControls(_ full: CGSize, ins: EdgeInsets, chrome: Bool, interactive: Bool) -> some View {
         let side = max(ins.leading, ins.trailing, 64) + 2
         return VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                PlayerIconButton(symbol: "chevron.left", label: "返回") { exitPlayer() }
-                    .opacity(dim).modifier(ChromeFade(on: chrome))
-                if let i = co.current, co.episodes.indices.contains(i) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(co.detail?.title ?? series.title)
-                            .font(.system(size: 16, weight: .bold)).lineLimit(1)
-                            .accessibilityIdentifier("player.title")
-                            .accessibilityValue("第\(co.episodes[i].ep)集")
-                        Text(landSubline(i)).font(.system(size: 12)).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
+            LiquidGlassGroup(spacing: 10) {
+                HStack(spacing: 10) {
+                    PlayerIconButton(symbol: "chevron.left", label: "返回") { exitPlayer() }
+                        .opacity(dim).modifier(ChromeFade(on: chrome))
+                    if let i = co.current, co.episodes.indices.contains(i) {
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(mainTitle(i))
+                                .font(.system(size: 16, weight: .bold)).lineLimit(1)
+                                .accessibilityIdentifier("player.title")
+                                .accessibilityValue("第\(co.episodes[i].ep)集")
+                            Group {
+                                if co.isLive { PlayerProgramLine(series: series, channel: co.episodes[i]) }
+                                else { Text(landSubline(i)).font(.system(size: 12)).foregroundStyle(.white.opacity(0.7)).lineLimit(1) }
+                            }
                             .accessibilityIdentifier("player.episodeInfo")
                             .accessibilityValue("第\(co.episodes[i].ep)集")
+                        }
+                        .shadow(color: .black.opacity(chrome ? 0 : 0.7), radius: 3)
+                        .opacity(scrubbing ? 0.28 : 1)
+                        .padding(.leading, 4)
+                        .layoutPriority(1)
                     }
-                    .shadow(color: .black.opacity(chrome ? 0 : 0.7), radius: 3)
-                    .opacity(scrubbing ? 0.28 : 1)
-                    .padding(.leading, 4)
-                    .layoutPriority(1)
+                    Spacer(minLength: 12)
+                    Group {
+                        if showTech { PlayerTechStrip(telemetry: co.telemetry, landscape: true).padding(.trailing, 4) }
+                        if !co.isLive {
+                            PlayerChip(action: PlayerAction(id: "player.autoNext", a11y: co.autoNext ? "关闭连播" : "开启连播", symbol: "repeat",
+                                                            title: "连播", value: co.autoNext ? "开" : "关", accent: co.autoNext) {
+                                co.autoNext.toggle(); showOSD(co.autoNext ? "连播：开" : "连播：关"); flashChrome()
+                            })
+                        }
+                        PlayerIconCluster {
+                            if co.channelList, suppliedDetail == nil { favoriteIcon }
+                            PlayerClusterIcon(symbol: "lock.open", label: "锁屏") { locked = true; panel = nil; flashChrome() }
+                                .accessibilityIdentifier("player.lock")
+                            PlayerClusterIcon(symbol: "ellipsis", label: "更多", tint: panel == .more ? STVTheme.accent : .white) { toggle(.more) }
+                                .accessibilityIdentifier("player.more")
+                            PlayerClusterIcon(symbol: "arrow.down.right.and.arrow.up.left", label: "退出横屏") { OrientationGate.exitLandscape(); flashChrome() }
+                                .accessibilityIdentifier("player.exitFullscreen")
+                        }
+                    }
+                    .opacity(dim).modifier(ChromeFade(on: chrome))
                 }
-                Spacer(minLength: 12)
-                Group {
-                    if showTech, let t = co.tech { PlayerTechStrip(tech: t, landscape: true).padding(.trailing, 4) }
-                    PlayerChip(id: "player.autoNext", a11y: co.autoNext ? "关闭连播" : "开启连播", symbol: "repeat",
-                               title: "连播", value: co.autoNext ? "开" : "关", on: co.autoNext) {
-                        co.autoNext.toggle(); showOSD(co.autoNext ? "连播：开" : "连播：关"); flashChrome()
-                    }
-                    PlayerIconButton(symbol: "lock.open", label: "锁屏") { locked = true; panel = nil; flashChrome() }
-                        .accessibilityIdentifier("player.lock")
-                    PlayerIconButton(symbol: "ellipsis", label: "更多", tint: panel == .more ? STVTheme.accent : .white) {
-                        toggle(.more)
-                    }
-                    .accessibilityIdentifier("player.more")
-                    PlayerIconButton(symbol: "arrow.down.right.and.arrow.up.left", label: "退出横屏") {
-                        OrientationGate.exitLandscape(); flashChrome()
-                    }
-                    .accessibilityIdentifier("player.exitFullscreen")
-                }
-                .opacity(dim).modifier(ChromeFade(on: chrome))
             }
             .frame(height: 44)
             .padding(.horizontal, side).padding(.top, 16)
             Spacer(minLength: 0)
             if let i = co.current, co.episodes.indices.contains(i) {
                 VStack(spacing: 12) {
-                    PlayerTimelineV3(co: co, scrubbing: $scrubbing, onInteract: flashChrome, landscape: true, inline: true).id(i)
-                        .opacity(panel != nil ? 0.35 : 1)
-                        .shadow(color: .black.opacity(chrome ? 0 : 0.6), radius: 2)
-                        .allowsHitTesting(interactive && co.readyIndex == i)
+                    if !co.isLive {
+                        PlayerTimelineV3(co: co, scrubbing: $scrubbing, onInteract: flashChrome).id(i)
+                            .opacity(panel != nil ? 0.35 : 1)
+                            .shadow(color: .black.opacity(chrome ? 0 : 0.6), radius: 2)
+                            .allowsHitTesting(interactive && co.readyIndex == i)
+                    }
                     HStack(spacing: 8) {
-                        if showSkip {
-                            Button { skipIntro() } label: {
-                                HStack(spacing: 4) { Text("跳过片头"); Image(systemName: "play.fill").font(.system(size: 8)) }
-                                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
-                                    .padding(.horizontal, 13).frame(height: 34)
-                                    .background(Color(red: 20/255, green: 20/255, blue: 24/255).opacity(0.5), in: Capsule())
-                                    .overlay { Capsule().strokeBorder(.white.opacity(0.2), lineWidth: 1) }
-                                    .contentShape(Capsule())
-                            }.buttonStyle(PressScale()).accessibilityIdentifier("player.skipIntro")
-                        }
+                        if co.channelList { PlayerLiveBadge(replay: co.replay != nil) } else { skipIntroButton }
                         Spacer(minLength: 8)
-                        landChips(i)
+                        PlayerActionChips(actions: actions(i))
                     }
                     .opacity(dim).modifier(ChromeFade(on: chrome))
                 }
@@ -762,30 +778,14 @@ struct PlayerScreen: View {
     private func landSubline(_ i: Int) -> String {
         let e = co.episodes[i]
         if suppliedDetail != nil { return "第 \(e.ep) 章 · " + e.title }
+        if series.source.isTVBox { return [lineName, e.title].filter { !$0.isEmpty }.joined(separator: " · ") }
         if longForm {
             return co.episodes.count > 1 ? "S1:E\(e.ep)" + (e.title.isEmpty ? "" : " · " + e.title) : (series.subtitle ?? Fmt.meta(series))
         }
         return (seasonTag.map { $0 + " · " } ?? "") + "第 \(e.ep) 集 / 共 \(co.episodes.count) 集"
     }
 
-    private func landChips(_ i: Int) -> some View {
-        let dmOK = series.source == .hongguo
-        let rate = co.playbackRate == 1 ? "1.0×" : SpeedPopover.label(co.playbackRate)
-        return HStack(spacing: 8) {
-            PlayerChip(id: "player.episodes", a11y: "选集", symbol: "square.grid.2x2", title: "选集", on: panel == .episodes) { toggle(.episodes) }
-            PlayerChip(id: "player.rate", a11y: "播放倍速 " + rate, symbol: "gauge.with.dots.needle.33percent", title: "倍速", value: rate,
-                       on: panel == .rates || co.playbackRate != 1) { toggle(.rates) }
-            PlayerChip(id: "player.quality", a11y: "画质与播放源", symbol: "sparkles.tv", title: "画质",
-                       value: qualityTag == "画质" ? nil : qualityTag, on: panel == .quality) { toggle(.quality) }
-            PlayerChip(id: "player.danmaku", a11y: danmaku.enabled ? "关闭弹幕" : "开启弹幕", symbol: "text.bubble", title: "弹幕",
-                       value: dmOK ? (danmaku.enabled ? "开" : "关") : nil, on: dmOK && danmaku.enabled, dimmed: !dmOK) {
-                guard dmOK else { showOSD("当前片源不支持弹幕"); return }
-                danmaku.enabled.toggle(); flashChrome()
-            }
-            PlayerChip(id: "player.audio", a11y: "音轨与字幕", symbol: "captions.bubble", title: "音轨字幕",
-                       on: panel == .audio || panel == .subtitles) { toggle(.audio) }
-        }
-    }
+    private var lineName: String { co.lines.indices.contains(co.lineIndex) && co.lines.count > 1 ? co.lines[co.lineIndex].name : "" }
 
     private func lockOnly(_ full: CGSize, ins: EdgeInsets) -> some View {
         PlayerIconButton(symbol: "lock.fill", label: "解锁") { locked = false; flashChrome() }
@@ -793,67 +793,65 @@ struct PlayerScreen: View {
             .position(x: max(ins.leading, 16) + 44, y: full.height / 2)
     }
 
-    @ViewBuilder
     private var moreSettingsContent: some View {
-        let isHdr = co.tech?.hdr == true
-        let pbInfo: String? = co.prebuffer.map { pb in
-            pb.lowStorage ? "存储不足，已停止预缓冲" : "已预缓冲 \(pb.bytes / 1_048_576) MB"
+        MoreSettingsHost(telemetry: co.telemetry) { info in
+            MoreSettingsPopover(
+                fillScreen: fillScreen,
+                enhanceLevel: co.enhanceLevel,
+                sdrToHdr: co.sdrToHdr,
+                isNativeHdr: co.nativeHDR,
+                sleepMode: co.sleepMode,
+                autoNext: co.autoNext,
+                autoNextDrama: co.autoNextDrama,
+                showAutoNext: !co.isLive,
+                showAutoNextDrama: !series.source.isLongVideo && suppliedDetail == nil,
+                showTech: showTech,
+                muted: muted,
+                showDanmaku: danmakuAvailable,
+                danmakuSummary: danmaku.summary,
+                prebufferInfo: info,
+                onClose: { closePanel() },
+                onOpenDanmaku: { withAnimation(DS.panel) { panel = .danmaku }; flashChrome() },
+                onFillScreen: { fill in
+                    fillScreen = fill
+                    showOSD(fill ? "画面：铺满全屏" : "画面：完整自适应")
+                },
+                onEnhance: { lvl in
+                    co.enhanceLevel = lvl
+                    showOSD(lvl == 0 ? "画质增强：已关闭" : "画质增强：\(lvl == 1 ? "标准" : "强效")锐化")
+                },
+                onSdrToHdr: { on in
+                    co.sdrToHdr = on
+                    showOSD(on ? "SDR 转 HDR：已开启" : "SDR 转 HDR：已关闭")
+                },
+                onSleep: { mode in
+                    co.setSleepTimer(mode) { msg in showOSD(msg) }
+                    showOSD(mode == 0 ? "定时关闭：已取消" : (mode == -1 ? "定时关闭：播完本集暂停" : "定时关闭：\(mode) 分钟后暂停"))
+                },
+                onAutoNext: { on in
+                    co.autoNext = on
+                    showOSD(on ? "自动连播：已开启" : "自动连播：已关闭")
+                },
+                onAutoNextDrama: { on in
+                    co.autoNextDrama = on
+                    showOSD(on ? "播完连刷推荐：已开启" : "播完连刷推荐：已关闭")
+                },
+                onToggleTech: {
+                    showTech.toggle()
+                    showOSD(showTech ? "技术信息：已显示" : "技术信息：已隐藏")
+                },
+                onToggleMute: {
+                    muted.toggle()
+                    co.setMuted(muted)
+                    showOSD(muted ? "已静音" : "已取消静音")
+                },
+                onCopyTitle: {
+                    UIPasteboard.general.string = co.detail?.title ?? series.title
+                    closePanel()
+                    showOSD("已复制剧名")
+                }
+            )
         }
-        MoreSettingsPopover(
-            fillScreen: fillScreen,
-            enhanceLevel: co.enhanceLevel,
-            sdrToHdr: co.sdrToHdr,
-            isNativeHdr: isHdr,
-            sleepMode: co.sleepMode,
-            autoNext: co.autoNext,
-            autoNextDrama: co.autoNextDrama,
-            showAutoNextDrama: !series.source.isLongVideo && suppliedDetail == nil,
-            showTech: showTech,
-            muted: muted,
-            showDanmaku: series.source == .hongguo,
-            danmakuSummary: danmaku.summary,
-            prebufferInfo: pbInfo,
-            onClose: { closePanel() },
-            onOpenDanmaku: { withAnimation(.easeOut(duration: 0.18)) { panel = .danmaku }; flashChrome() },
-            onFillScreen: { fill in
-                fillScreen = fill
-                showOSD(fill ? "画面：铺满全屏" : "画面：完整自适应")
-            },
-            onEnhance: { lvl in
-                co.enhanceLevel = lvl
-                showOSD(lvl == 0 ? "画质增强：已关闭" : "画质增强：\(lvl == 1 ? "标准" : "强效")锐化")
-            },
-            onSdrToHdr: { on in
-                co.sdrToHdr = on
-                showOSD(on ? "SDR 转 HDR：已开启" : "SDR 转 HDR：已关闭")
-            },
-            onSleep: { mode in
-                co.setSleepTimer(mode) { msg in showOSD(msg) }
-                showOSD(mode == 0 ? "定时关闭：已取消" : (mode == -1 ? "定时关闭：播完本集暂停" : "定时关闭：\(mode) 分钟后暂停"))
-            },
-            onAutoNext: { on in
-                co.autoNext = on
-                showOSD(on ? "自动连播：已开启" : "自动连播：已关闭")
-            },
-            onAutoNextDrama: { on in
-                co.autoNextDrama = on
-                showOSD(on ? "播完连刷推荐：已开启" : "播完连刷推荐：已关闭")
-            },
-            onToggleTech: {
-                showTech.toggle()
-                showOSD(showTech ? "技术信息：已显示" : "技术信息：已隐藏")
-            },
-            onToggleMute: {
-                muted.toggle()
-                co.setMuted(muted)
-                showOSD(muted ? "已静音" : "已取消静音")
-            },
-            onCopyTitle: {
-                UIPasteboard.general.string = co.detail?.title ?? series.title
-                closePanel()
-                showOSD("已复制剧名")
-            }
-        )
     }
 
     // MARK: Caption pieces
@@ -884,24 +882,45 @@ struct PlayerScreen: View {
     private func meta(_ i: Int, skip: Bool) -> some View {
         let e = co.episodes[i]
         let longList = longForm
+        var source: String? = shortFixture ? "本地彩条测试" : (longList && co.episodes.count > 1 ? nil : series.source.label)
         let line: String, strong: String, rest: String
-        if suppliedDetail != nil {
+        if co.channelList {
+            source = nil; line = ""; strong = ""
+            rest = [co.replay == nil ? "" : e.title, e.page ?? "", liveSourceLabel(i)].filter { !$0.isEmpty }.joined(separator: " · ")
+        } else if suppliedDetail != nil {
             line = ""; strong = "第\(e.ep)章"; rest = " · " + e.title
+        } else if series.source.isTVBox {
+            source = series.source.label
+            line = lineName.isEmpty ? "" : lineName + " · "
+            strong = e.title.isEmpty ? "第\(e.ep)集" : e.title
+            rest = co.episodes.count > 1 ? " / 共\(co.episodes.count)集" : ""
         } else if longList {
             if co.episodes.count > 1 { line = ""; strong = "S1:E\(e.ep)"; rest = e.title.isEmpty ? "" : " · " + e.title }
             else { line = series.subtitle ?? Fmt.meta(series); strong = ""; rest = "" }
         } else {
             line = seasonTag.map { $0 + " · " } ?? ""; strong = "第\(e.ep)集"; rest = " / 共\(co.episodes.count)集"
         }
-        return PlayerMetaRow(source: shortFixture ? "本地彩条测试" : (longList && co.episodes.count > 1 ? nil : series.source.label), line: line, lineStrong: strong, rest: rest,
-                             showSkip: skip && showSkip, onSkip: skipIntro)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("player.episodeInfo")
-            .accessibilityValue("第\(e.ep)集")
+        return HStack(spacing: 8) {
+            if co.channelList { PlayerLiveBadge(replay: co.replay != nil) }
+            PlayerMetaRow(source: source, line: line, lineStrong: strong, rest: rest) {
+                if skip && !co.channelList { skipIntroButton }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("player.episodeInfo")
+        .accessibilityValue("第\(e.ep)集")
+    }
+
+    private func liveSourceLabel(_ i: Int) -> String {
+        guard let all = co.streams[i], all.count > 1, let c = co.chosen[i], let k = all.firstIndex(of: c) else { return "" }
+        return "线路 \(k + 1)/\(all.count)"
+    }
+
+    private var skipIntroButton: some View {
+        PlayerSkipIntro(clock: co.clock, introEnd: introEnd, ready: co.readyIndex != nil, onSkip: skipIntro)
     }
 
     private var introEnd: Double { series.source.isLongVideo ? 90 : 15 }
-    private var showSkip: Bool { co.readyIndex != nil && co.time < introEnd - 1 && co.duration > introEnd + 30 }
     private func skipIntro() {
         guard co.duration > 0 else { return }
         co.seek(fraction: introEnd / co.duration); showOSD("已跳过片头")
@@ -918,127 +937,108 @@ struct PlayerScreen: View {
     }
     private var longForm: Bool { series.source.isLongVideo && !shortFixture }
 
-    private var qualityTag: String {
-        if let t = co.tech, !t.resolution.isEmpty { return t.resolution }
+    private var qualityTag: String? {
+        if !co.resolutionLabel.isEmpty { return co.resolutionLabel }
         if let i = co.current, let q = co.chosen[i]?.quality, !q.isEmpty { return String(q.prefix(5)) }
-        return "画质"
+        return nil
     }
 
-    @ViewBuilder private func iconRow(_ i: Int) -> some View {
-        let items = HStack(spacing: landscape ? 6 : 0) {
-            slot { PlayerRowIcon(id: "player.rate", a11y: "播放倍速 " + SpeedPopover.label(co.playbackRate), active: panel == .rates, action: { toggle(.rates) }) {
-                if co.playbackRate == 1 { Image(systemName: "gauge.with.dots.needle.33percent").font(.system(size: 19)) }
-                else { Text(SpeedPopover.label(co.playbackRate)).font(.system(size: 14, weight: .bold)).foregroundStyle(STVTheme.accent) }
-            } }
-            slot { PlayerRowIcon(id: "player.quality", a11y: "画质与播放源", active: panel == .quality, action: { toggle(.quality) }) { OutlinedTag(text: qualityTag) } }
-            slot { PlayerRowIcon(id: "player.audio", a11y: "音轨", active: panel == .audio, action: { toggle(.audio) }) {
-                Image(systemName: "waveform").font(.system(size: 19))
-            } }
-            slot { PlayerRowIcon(id: "player.subtitles", a11y: "字幕", active: panel == .subtitles, action: { toggle(.subtitles) }) {
-                Image(systemName: "text.bubble").font(.system(size: 19))
-            } }
-            slot { PlayerRowIcon(id: "player.danmaku", a11y: danmaku.enabled ? "关闭弹幕" : "开启弹幕", action: {
-                guard series.source == .hongguo else { showOSD("当前片源不支持弹幕"); return }
-                danmaku.enabled.toggle(); flashChrome()
-            }) { DanmakuGlyph(on: danmaku.enabled && series.source == .hongguo).opacity(series.source == .hongguo ? 1 : 0.4) } }
-            slot { PlayerRowIcon(id: "player.episodes", a11y: "选集", active: panel == .episodes, action: { toggle(.episodes) }) {
-                Image(systemName: "square.grid.2x2").font(.system(size: 19))
-            } }
-            if !landscape {
-                slot { PlayerRowIcon(id: "player.fullscreen", a11y: "横屏全屏", action: { OrientationGate.enterLandscape(); flashChrome() }) {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 18))
-                } }
-            }
+    /// The bottom actions, one list for both orientations and every kind of source.
+    private func actions(_ i: Int) -> [PlayerAction] {
+        let track = PlayerAction(id: "player.audio", a11y: "音轨与字幕", symbol: "captions.bubble", title: "音轨字幕",
+                                 active: panel == .audio || panel == .subtitles) { toggle(.audio) }
+        let guide = PlayerAction(id: "player.guide", a11y: "节目单", symbol: "calendar", title: "节目单", active: panel == .guide) { toggle(.guide) }
+        let channels = PlayerAction(id: "player.episodes", a11y: "频道", symbol: "list.bullet", title: "频道", active: panel == .episodes) { toggle(.episodes) }
+        if co.replay != nil {
+            let rate = SpeedPopover.label(co.playbackRate)
+            return [
+                PlayerAction(id: "player.backToLive", a11y: "返回直播", symbol: "dot.radiowaves.left.and.right", title: "返回直播", accent: true) { co.backToLive(); flashChrome() },
+                guide, channels,
+                PlayerAction(id: "player.rate", a11y: "播放倍速 " + rate, symbol: "gauge.with.dots.needle.33percent", title: "倍速",
+                             value: co.playbackRate == 1 ? "1.0×" : rate, active: panel == .rates, accent: co.playbackRate != 1) { toggle(.rates) },
+                track,
+            ]
         }
-        items.frame(maxWidth: landscape ? nil : .infinity)
-    }
-
-    /// Portrait redesign: five labelled actions that show their current value; 音轨 + 字幕 share one entry.
-    private func actionRow(_ i: Int) -> some View {
-        let dmOK = series.source == .hongguo
+        if co.isLive {
+            let count = co.streams[i]?.count ?? 1
+            return [
+                channels, guide,
+                PlayerAction(id: "player.quality", a11y: "线路", symbol: "antenna.radiowaves.left.and.right", title: "线路",
+                             value: count > 1 ? "\(count)" : nil, active: panel == .quality) { toggle(.quality) },
+                PlayerAction(id: "player.fill", a11y: "画面比例", symbol: "aspectratio", title: "画面", value: fillScreen ? "铺满" : "适应") {
+                    fillScreen.toggle(); showOSD(fillScreen ? "画面：铺满全屏" : "画面：完整自适应")
+                },
+                track,
+            ]
+        }
         let rate = SpeedPopover.label(co.playbackRate)
-        return HStack(spacing: 0) {
-            PlayerActionButton(id: "player.episodes", a11y: "选集", title: "选集", active: panel == .episodes, action: { toggle(.episodes) }) {
-                Image(systemName: "square.grid.2x2")
-            }
-            PlayerActionButton(id: "player.rate", a11y: "播放倍速 " + rate, title: "倍速",
-                               value: co.playbackRate == 1 ? "1.0×" : rate,
-                               active: panel == .rates, accent: co.playbackRate != 1, action: { toggle(.rates) }) {
-                Image(systemName: "gauge.with.dots.needle.33percent")
-            }
-            PlayerActionButton(id: "player.quality", a11y: "画质与播放源", title: "画质", value: qualityTag == "画质" ? nil : qualityTag,
-                               active: panel == .quality, action: { toggle(.quality) }) {
-                Image(systemName: "sparkles.tv")
-            }
-            PlayerActionButton(id: "player.danmaku", a11y: danmaku.enabled ? "关闭弹幕" : "开启弹幕", title: "弹幕",
-                               value: dmOK ? (danmaku.enabled ? "开" : "关") : nil,
-                               accent: dmOK && danmaku.enabled, dimmed: !dmOK, action: {
+        let dmOK = danmakuAvailable
+        return [
+            PlayerAction(id: "player.episodes", a11y: "选集", symbol: "square.grid.2x2", title: "选集", active: panel == .episodes) { toggle(.episodes) },
+            PlayerAction(id: "player.rate", a11y: "播放倍速 " + rate, symbol: "gauge.with.dots.needle.33percent", title: "倍速",
+                         value: co.playbackRate == 1 ? "1.0×" : rate, active: panel == .rates, accent: co.playbackRate != 1) { toggle(.rates) },
+            PlayerAction(id: "player.quality", a11y: "画质与播放源", symbol: "sparkles.tv", title: co.lines.count > 1 ? "线路" : "画质",
+                         value: qualityTag, active: panel == .quality) { toggle(.quality) },
+            PlayerAction(id: "player.danmaku", a11y: danmaku.enabled ? "关闭弹幕" : "开启弹幕", symbol: "text.bubble", title: "弹幕",
+                         value: dmOK ? (danmaku.enabled ? "开" : "关") : nil, accent: dmOK && danmaku.enabled, dimmed: !dmOK) {
                 guard dmOK else { showOSD("当前片源不支持弹幕"); return }
                 danmaku.enabled.toggle(); flashChrome()
-            }) {
-                Image(systemName: "text.bubble")
-            }
-            PlayerActionButton(id: "player.audio", a11y: "音轨与字幕", title: "音轨字幕",
-                               active: panel == .audio || panel == .subtitles, action: { toggle(.audio) }) {
-                Image(systemName: "captions.bubble")
-            }
-        }
-    }
-
-    @ViewBuilder private func slot<C: View>(@ViewBuilder _ c: () -> C) -> some View {
-        if landscape { c() } else { c().frame(maxWidth: .infinity) }
+            },
+            track,
+        ]
     }
 
     private func toggle(_ p: PlayerPanel) {
-        withAnimation(.easeOut(duration: 0.18)) { panel = panel == p ? nil : p }
+        withAnimation(DS.panel) { panel = panel == p ? nil : p }
         flashChrome()
         if p == .quality, altSearched == nil { altSearched = false; Task { await findAltSources(); altSearched = true } }
     }
 
     private func closePanel() {
-        withAnimation(.easeOut(duration: 0.18)) { panel = nil }
+        withAnimation(DS.panel) { panel = nil }
         flashChrome()
     }
 
     // MARK: Popovers
 
+    /// Panels that scroll fill the height they are given; the others hug their content.
+    private func scrolls(_ p: PlayerPanel) -> Bool { p == .episodes || p == .danmaku || p == .more || p == .guide }
+
     @ViewBuilder private func popover(_ p: PlayerPanel, full: CGSize, ins: EdgeInsets) -> some View {
+        let tall = co.channelList && (p == .episodes || p == .guide)
         let width: CGFloat = {
             switch p {
-            case .episodes: return landscape ? 380 : full.width - 24
+            case .episodes, .guide: return landscape ? (tall ? 340 : 380) : full.width - 24
             case .danmaku, .more: return landscape ? 356 : min(500, full.width - 24)
             case .rates: return landscape ? 230 : full.width - 24
-            default: return landscape ? 270 : full.width - 24
+            default: return landscape ? 290 : full.width - 24
             }
         }()
         let maxH: CGFloat = {
-            if p == .danmaku {
-                return landscape ? full.height * 0.86 : full.height * 0.48
-            }
-            if p == .more {
-                return landscape ? full.height * 0.84 : min(500, full.height * 0.72)
-            }
-            return landscape ? (p == .episodes ? 270 : full.height - 44 - 110)
-                             : min(p == .episodes ? 372 : 420, full.height * 0.5)
+            if tall { return landscape ? full.height - 28 : full.height * 0.62 }
+            if p == .danmaku { return landscape ? full.height * 0.86 : full.height * 0.48 }
+            if p == .more { return landscape ? full.height * 0.84 : min(520, full.height * 0.72) }
+            return landscape ? (p == .episodes ? min(300, full.height - 60) : full.height - 44 - 110)
+                             : min(p == .episodes ? 392 : 440, full.height * 0.52)
         }()
         let body = popoverContent(p)
             .frame(width: width)
             .frame(maxHeight: maxH, alignment: .top)
-            .fixedSize(horizontal: false, vertical: p != .episodes && p != .danmaku && p != .more)
-            .playerGlass(p == .danmaku ? 26 : (landscape ? 20 : 24), strong: p != .danmaku)
+            .fixedSize(horizontal: false, vertical: !scrolls(p))
+            .playerPanel(landscape ? 26 : 30)
             .gesture(DragGesture(minimumDistance: 24).onEnded { v in if v.translation.height > 60 { closePanel() } })
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("player.popover.\(p.rawValue)")
-            .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: landscape ? .topTrailing : .bottomLeading)))
+            .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: landscape ? .trailing : .bottom)))
         if landscape {
             VStack {
-                if p == .danmaku || p == .more { Spacer() }
+                if p == .danmaku || p == .more || tall { Spacer(minLength: 0) }
                 HStack { Spacer(); body }
-                Spacer()
+                Spacer(minLength: 0)
             }
-            .padding(.top, (p == .danmaku || p == .more || p == .episodes) ? 14 : 44)
-            .padding(.bottom, (p == .danmaku || p == .more) ? 14 : 0)
-            .padding(.trailing, (p == .danmaku || p == .more) ? max(16, ins.trailing) : 48)
+            .padding(.top, (scrolls(p)) ? 14 : 44)
+            .padding(.bottom, (p == .danmaku || p == .more || tall) ? 14 : 0)
+            .padding(.trailing, (p == .danmaku || p == .more || tall) ? max(16, ins.trailing) : 48)
             .frame(width: full.width, height: full.height)
         } else {
             VStack {
@@ -1050,7 +1050,7 @@ struct PlayerScreen: View {
                 }
             }
             .padding(.horizontal, 12)
-            .padding(.bottom, p == .danmaku ? max(14, ins.bottom) : (max(0, ins.bottom - 6) + 62 + 8))
+            .padding(.bottom, p == .danmaku ? max(14, ins.bottom) : (max(8, ins.bottom - 4) + 72 + 10))
             .frame(width: full.width, height: full.height)
         }
     }
@@ -1063,7 +1063,9 @@ struct PlayerScreen: View {
         case .quality:
             ScrollView {
                 QualityPopover(streams: co.streams[i] ?? [], chosen: co.chosen[i], sources: sourceRows,
-                               streamsTitle: longForm ? series.source.streamSectionTitle : "画质") { s in
+                               streamsTitle: co.isLive ? "线路" : series.source.isTVBox ? "画质" : longForm ? series.source.streamSectionTitle : "画质",
+                               lines: co.lines, lineIndex: co.lineIndex,
+                               onLine: { idx in co.selectLine(idx); closePanel() }) { s in
                     co.choose(s, for: i); closePanel()
                 }
             }.scrollIndicators(.hidden)
@@ -1080,20 +1082,34 @@ struct PlayerScreen: View {
         case .subtitles:
             TrackPopover(title: "字幕", options: co.subtitleOptions, selected: co.subtitleSelected, allowsOff: true,
                          emptyText: "当前视频没有可选字幕") { o in co.selectSubtitle(o); closePanel() }
+        case .guide:
+            if co.episodes.indices.contains(i) {
+                GuidePopover(series: series, channel: co.episodes[i], replaying: co.replay,
+                             onReplay: { p, v in closePanel(); co.playReplay(p, video: v) },
+                             onLive: { closePanel(); co.backToLive() })
+            }
         case .episodes:
-            EpisodesPopover(episodes: co.episodes, current: co.current ?? 0,
-                            seasons: seasonChips,
-                            currentSeason: series.seriesId, listStyle: longForm,
-                            dateLine: series.onlineTime > 0 ? Self.date(series.onlineTime) : nil,
-                            onPick: { idx in closePanel(); co.select(idx) },
-                            onSeason: { id in
-                                guard id != series.seriesId, let s = seasons.first(where: { $0.seriesId == id }) else { return }
-                                panel = nil; onSwitchSeries(s)
-                            })
+            if co.channelList {
+                ChannelsPopover(series: series, channels: co.episodes, current: i) { idx in
+                    if landscape { co.select(idx); flashChrome() } else { closePanel(); co.select(idx) }
+                }
+            } else {
+                EpisodesPopover(episodes: co.episodes, current: i,
+                                seasons: seasonChips, currentSeason: series.seriesId,
+                                style: series.source.isTVBox || (co.lines.count > 1) ? .titles : (longForm ? .rows : .numbers),
+                                lines: co.lines, lineIndex: co.lineIndex,
+                                dateLine: series.onlineTime > 0 ? Self.date(series.onlineTime) : nil,
+                                onPick: { idx in closePanel(); co.select(idx) },
+                                onSeason: { id in
+                                    guard id != series.seriesId, let s = seasons.first(where: { $0.seriesId == id }) else { return }
+                                    panel = nil; onSwitchSeries(s)
+                                },
+                                onLine: { idx in co.selectLine(idx) })
+            }
         case .danmaku:
             ScrollView {
                 DanmakuSettingsSheet(
-                    available: series.source == .hongguo,
+                    available: danmakuAvailable,
                     onDismiss: { closePanel() },
                     onReset: { showOSD("弹幕设置已重置") }
                 )
@@ -1152,7 +1168,7 @@ struct PlayerScreen: View {
     /// Double tap: left third −10 s, right third +10 s, middle play / pause.
     private func handleDoubleTap(_ x: CGFloat) {
         guard !locked else { return }
-        if x < 1.0 / 3 || x > 2.0 / 3 {
+        if !co.isLive, x < 1.0 / 3 || x > 2.0 / 3 {
             let step = x > 2.0 / 3 ? 10 : -10, now = Date()
             // Same direction within the streak window adds up: +10, +20, +30 …
             let total = (seekRun.flatMap { now.timeIntervalSince($0.at) < 0.9 && ($0.total > 0) == (step > 0) ? $0.total : nil } ?? 0) + step
@@ -1261,15 +1277,25 @@ struct PlayerScreen: View {
     private func load() async {
         do {
             let d: HGSeriesDetail
+            // the list may be refreshed between the tap and here
+            let picked = startIndex.flatMap { i in series.source.tvboxLiveUID.flatMap { TVBoxStore.engine.listedChannel($0, i) } }
             if let suppliedDetail { d = suppliedDetail } else { d = try await Catalog.detail(series) }
             try Task.checkCancellation()
             loadError = nil
-            guard !d.episodes.isEmpty else { throw ProviderError.upstream("暂无可播放分集") }
+            guard !d.episodes.isEmpty else { throw ProviderError.upstream(d.isLive ? "这个直播源没有频道" : "暂无可播放分集") }
+            if d.isLive {
+                co.detail = d
+                let last = LiveHooks.lastChannel(series)?.index(in: d.episodes)
+                co.select(min(max(0, startIndex.map { LiveHooks.place($0, picked, in: d.episodes) } ?? last ?? 0), d.episodes.count - 1))
+                flashChrome()
+                return
+            }
             let start = min(max(0, startIndex ?? (shortFixture ? Int(ProcessInfo.processInfo.environment["STV_FX_START"] ?? "") : nil) ?? library.progress(for: series)?.episodeIndex ?? 0), d.episodes.count - 1)
             co.detail = d
-            co.select(start)
+            co.adoptPreferredLine()
+            co.select(min(start, max(0, co.episodes.count - 1)))
             flashChrome()
-            if suppliedDetail == nil { seasons = await SeasonStore.seasons(for: d, series: series) }
+            if suppliedDetail == nil, !series.source.isTVBox { seasons = await SeasonStore.seasons(for: d, series: series) }
         } catch { if !Task.isCancelled { loadError = error } }
     }
 
@@ -1453,6 +1479,8 @@ struct PlayerTouchCatcher: UIViewRepresentable {
     var edgeBackWidth: CGFloat
     var speedMode: Bool
     var locked: Bool = false
+    /// Long-press speed (off for live).
+    var speedEnabled = true
     var onTap: () -> Void
     /// x as a fraction of the width.
     var onDoubleTap: (CGFloat) -> Void = { _ in }
@@ -1494,7 +1522,7 @@ struct PlayerTouchCatcher: UIViewRepresentable {
         c.pinch.isEnabled = playbackReady && !locked && !speedMode
         // While speed HUD is up, keep catcher receiving the finger; chrome is hit-disabled.
         uiView.isUserInteractionEnabled = true
-        c.longPress.isEnabled = playbackReady && !locked
+        c.longPress.isEnabled = playbackReady && !locked && speedEnabled
         c.adjustPan.isEnabled = !locked
         c.doubleTapEnabled = playbackReady && !speedMode && !locked
         c.tap.isEnabled = !speedMode
@@ -1691,6 +1719,22 @@ struct PlayerTouchCatcher: UIViewRepresentable {
             guard self.point(inside: point, with: event) else { return nil }
             return self
         }
+    }
+}
+
+/// Feed scroll position, shared by reference (see `PlayerScreen.feed`).
+@MainActor final class FeedOffset: ObservableObject {
+    @Published var y: CGFloat = 0
+}
+
+/// Moves its content with the feed: offset of page `index` from rest, capped at one page either way.
+private struct FeedDrift<Content: View>: View {
+    @ObservedObject var feed: FeedOffset
+    let index: Int
+    let page: CGFloat
+    @ViewBuilder let content: Content
+    var body: some View {
+        content.offset(y: page > 0 ? -max(-page, min(page, feed.y - CGFloat(index) * page)) : 0)
     }
 }
 

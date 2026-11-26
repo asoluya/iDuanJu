@@ -12,86 +12,89 @@ struct SourcesView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 22) {
                 if gate.lockEnabled && !gate.unlocked {
-                    lockedCard
+                    DSEmptyState("18+ 片源已锁定", systemImage: "lock.fill", message: "验证后才显示隐藏的片源。", actionTitle: "用 Face ID 解锁") { Task { await gate.unlock() } }
+                        .padding(.top, 60)
                 } else {
-                    group("内置") {
-                        builtinRow(.hongguo, "play.rectangle.on.rectangle")
+                    DSSection("内置", separatorInset: 58) {
+                        DSRow(title: DramaSource.hongguo.label, icon: "play.rectangle.on.rectangle") { DSStatus(text: "内置", tone: .muted) }
                     }
-                    group("18+ 片源（默认隐藏）") {
-                        Toggle(isOn: Binding(get: { gate.huangguo }, set: { gate.setHuangguo($0) })) {
-                            label(DramaSource.huangguo.label, "film.stack", sub: "18+ · 视频站 / App 源 / AI 站；开启后出现在「发现」「搜索」和 AI剧")
-                        }.padding(14).accessibilityIdentifier("sources.huangguo")
+                    DSSection("18+ 片源（默认隐藏）", separatorInset: 58) {
+                        DSToggleRow(DramaSource.huangguo.label, isOn: Binding(get: { gate.huangguo }, set: { gate.setHuangguo($0) }), icon: "film.stack",
+                                    subtitle: "18+ · 视频站 / App 源 / AI 站；开启后出现在「发现」「搜索」和 AI剧")
+                            .accessibilityIdentifier("sources.huangguo")
                         ForEach(Sites.all.filter(\.isAdult)) { s in siteRow(s) }
                     }
-                    group("插件与采集站") {
-                        NavigationLink(value: Route.plugins) {
-                            HStack { label("插件管理", "puzzlepiece.extension", sub: "JS 插件、订阅、苹果 CMS 采集站；成人插件在这里解锁后才显示"); Spacer(); chevron }.padding(14)
-                        }.buttonStyle(.plain).accessibilityIdentifier("sources.plugins")
+                    DSSection("插件与采集站", separatorInset: 58) {
+                        DSLinkRow("插件管理", route: Route.plugins, icon: "puzzlepiece.extension", subtitle: "JS 插件、订阅、苹果 CMS 采集站；成人插件在这里解锁后才显示")
+                            .accessibilityIdentifier("sources.plugins")
                     }
-                    group("频道与漫画（默认隐藏）") {
-                        Toggle(isOn: Binding(get: { gate.adultChannels }, set: { gate.setAdultChannels($0) })) {
-                            label("成人 Telegram 频道", "paperplane", sub: "预置 @bhg1232 / @NudefilmsTV 及你标记为成人的频道；开启后才出现在「频道」")
-                        }.padding(14).accessibilityIdentifier("sources.adultChannels")
-                        Toggle(isOn: Binding(get: { gate.adultManga }, set: { gate.setAdultManga($0) })) {
-                            label("成人漫画源", "book.closed", sub: "控制成人漫画插件（内置推荐：Manga18fx / Komikindo / 18comic）；插件结果一律过滤未成年人相关标签")
-                        }.padding(14)
+                    DSSection("频道与漫画（默认隐藏）",
+                              footer: "开启后，该站会出现在「发现」顶部标签和「搜索」结果来源里；关闭后收藏、观看记录仍保留在本机，只是不再显示。所有请求由本机直连站点，部分站点需要先在内置浏览器完成一次 Cloudflare 验证。",
+                              separatorInset: 58) {
+                        DSToggleRow("成人 Telegram 频道", isOn: Binding(get: { gate.adultChannels }, set: { gate.setAdultChannels($0) }), icon: "paperplane",
+                                    subtitle: "预置 @bhg1232 / @NudefilmsTV 及你标记为成人的频道；开启后才出现在「频道」")
+                            .accessibilityIdentifier("sources.adultChannels")
+                        DSToggleRow("成人漫画源", isOn: Binding(get: { gate.adultManga }, set: { gate.setAdultManga($0) }), icon: "book.closed",
+                                    subtitle: "控制成人漫画插件（内置推荐：Manga18fx / Komikindo / 18comic）；插件结果一律过滤未成年人相关标签")
                     }
-                    Text("开启后，该站会出现在「发现」顶部标签和「搜索」结果来源里；关闭后收藏、观看记录仍保留在本机，只是不再显示。所有请求由本机直连站点，部分站点需要先在内置浏览器完成一次 Cloudflare 验证。")
-                        .font(.caption).foregroundStyle(STVTheme.secondary).padding(.horizontal, 16)
-                    group("播放设置") {
-                        VStack(alignment: .leading, spacing: 10) {
-                            label("长视频预缓冲", "arrow.down.circle", sub: "播放时从当前位置向后预先下载到本机，弱网下拖动/连续观看更流畅；短剧仍按预加载后续 3–4 集")
-                            Picker("长视频预缓冲", selection: $bufferMB) {
-                                ForEach(BufferSettings.options, id: \.self) { Text(BufferSettings.label($0)).tag($0) }
-                            }
-                            .pickerStyle(.segmented)
-                            .accessibilityIdentifier("settings.prebuffer")
-                            .compatOnChange(of: bufferMB) { v in BufferSettings.megabytes = v }
-                        }.padding(14)
-                        Toggle(isOn: Binding(get: { adStrip }, set: { adStrip = $0; HLSAdFilter.enabled = $0 })) {
-                            label("去广告", "nosign", sub: "去掉 HLS 片源里插播的广告片段（adjump、异域名短片段、AES 片源中的明文短片段、重复片段）；不会整段丢弃正片的分段标记")
-                        }.padding(14).accessibilityIdentifier("settings.adstrip")
-                        VStack(alignment: .leading, spacing: 10) {
-                            label("播放内核", "cpu", sub: "默认使用系统播放器（原生支持画中画小窗、功耗更低）；如需播放杜比视界/HDR10/DTS/TrueHD 或内置 ASS 字幕，可切换为 MPVKit（暂不支持画中画）")
-                            Picker("播放内核", selection: Binding(get: { engineKind }, set: { engineKind = $0; PlayerEngineSettings.preferred = $0 })) {
-                                ForEach(PlayerEngineKind.allCases, id: \.self) { Text($0.label).tag($0) }
-                            }
-                            .pickerStyle(.segmented)
-                            .accessibilityIdentifier("settings.engine")
-                        }.padding(14)
-                        actionRow("清空预缓冲缓存（\(ByteCountFormatter.string(fromByteCount: cacheBytes, countStyle: .file))，上限 2GB）", "externaldrive.badge.xmark") {
-                            PrefetchStore.shared.clearAll()
-                            cacheBytes = PrefetchStore.shared.totalBytes()
-                            message = "已清空预缓冲缓存"
-                        }
-                    }
-                    group("隐私") {
-                        Toggle(isOn: Binding(get: { gate.lockEnabled }, set: { on in Task { await gate.setLock(on) } })) {
-                            label("隐藏片源锁（Face ID）", "faceid", sub: "每次启动后需验证才显示 18+ 片源")
-                        }.padding(14)
-                        actionRow("清除站点验证 Cookie", "trash") {
-                            await CFCookies.clearAll()
-                            message = "已清除站点 Cookie"
-                        }
-                        NavigationLink { SiteLogView() } label: {
-                            HStack { label("站点诊断日志", "stethoscope", sub: "Cloudflare 验证 / Cookie / UA 记录，可复制给开发者"); Spacer(); chevron }.padding(14)
-                        }.buttonStyle(.plain)
-                        NavigationLink(value: Route.licenses) {
-                            HStack { label("开源许可", "doc.text"); Spacer(); chevron }.padding(14)
-                        }.buttonStyle(.plain)
-                    }
-                    if let message { Text(message).font(.caption).foregroundStyle(STVTheme.accent).padding(.horizontal, 16) }
+                    playback
+                    privacy
                 }
-            }.padding(.vertical, 12)
+            }
+            .padding(.top, 4).padding(.bottom, 32)
         }
         .compatDefaultScrollAnchor(DebugScroll.anchor)
-        .background(STVTheme.bg.ignoresSafeArea())
-        .navigationTitle("片源管理")
-        .navigationBarTitleDisplayMode(.inline)
+        .dsNavigation("片源管理")
+        .dsToast($message, icon: "checkmark.circle.fill")
         .task { if gate.lockEnabled { await gate.unlock() } }
         .task { cacheBytes = await Task.detached { PrefetchStore.shared.totalBytes() }.value }
+    }
+
+    private var playback: some View {
+        DSSection("播放设置", separatorInset: 58) {
+            VStack(alignment: .leading, spacing: 12) {
+                DSRowLabel(title: "长视频预缓冲", icon: "arrow.down.circle", subtitle: "播放时从当前位置向后预先下载到本机，弱网下拖动/连续观看更流畅；短剧仍按预加载后续 3–4 集")
+                SegmentedTabs(items: BufferSettings.options, selection: $bufferMB, label: { BufferSettings.label($0) }, idPrefix: "settings.prebuffer")
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("settings.prebuffer")
+                    .compatOnChange(of: bufferMB) { v in BufferSettings.megabytes = v }
+            }
+            .dsRow(vertical: 14)
+            DSToggleRow("去广告", isOn: Binding(get: { adStrip }, set: { adStrip = $0; HLSAdFilter.enabled = $0 }), icon: "nosign",
+                        subtitle: "去掉 HLS 片源里插播的广告片段（adjump、异域名短片段、AES 片源中的明文短片段、重复片段）；不会整段丢弃正片的分段标记")
+                .accessibilityIdentifier("settings.adstrip")
+            VStack(alignment: .leading, spacing: 12) {
+                DSRowLabel(title: "播放内核", icon: "cpu", subtitle: "默认使用系统播放器（原生支持画中画小窗、功耗更低）；如需播放杜比视界/HDR10/DTS/TrueHD 或内置 ASS 字幕，可切换为 MPVKit（暂不支持画中画）")
+                SegmentedTabs(items: Array(PlayerEngineKind.allCases), selection: Binding(get: { engineKind }, set: { engineKind = $0; PlayerEngineSettings.preferred = $0 }),
+                              label: { $0.label }, idPrefix: "settings.engine")
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("settings.engine")
+            }
+            .dsRow(vertical: 14)
+            DSRow("清空预缓冲缓存", icon: "externaldrive.badge.xmark", subtitle: "上限 2GB", value: ByteCountFormatter.string(fromByteCount: cacheBytes, countStyle: .file)) {
+                Task {
+                    PrefetchStore.shared.clearAll()
+                    cacheBytes = await Task.detached { PrefetchStore.shared.totalBytes() }.value
+                    message = "已清空预缓冲缓存"
+                }
+            }
+        }
+    }
+
+    private var privacy: some View {
+        DSSection("隐私", separatorInset: 58) {
+            DSToggleRow("隐藏片源锁（Face ID）", isOn: Binding(get: { gate.lockEnabled }, set: { on in Task { await gate.setLock(on) } }), icon: "faceid", subtitle: "每次启动后需验证才显示 18+ 片源")
+            DSRow("清除站点验证 Cookie", icon: "trash") {
+                Task { await CFCookies.clearAll(); message = "已清除站点 Cookie" }
+            }
+            NavigationLink { SiteLogView() } label: {
+                DSRowLabel(title: "站点诊断日志", icon: "stethoscope", subtitle: "Cloudflare 验证 / Cookie / UA 记录，可复制给开发者", chevron: true).dsRow()
+            }
+            .buttonStyle(DSRowPress())
+            DSLinkRow("开源许可", route: Route.licenses, icon: "doc.text")
+        }
     }
 
     static func rootDomain(_ s: DramaSource) -> String {
@@ -99,37 +102,8 @@ struct SourcesView: View {
         return parts.count >= 2 ? parts.suffix(2).joined(separator: ".") : s.siteHost
     }
 
-    private var lockedCard: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "lock.fill").font(.largeTitle).foregroundStyle(STVTheme.accent)
-            Text("18+ 片源已锁定").font(.headline).foregroundStyle(STVTheme.text)
-            Button("用 Face ID 解锁") { Task { await gate.unlock() } }
-                .buttonStyle(.borderedProminent).tint(STVTheme.accent)
-        }.frame(maxWidth: .infinity).padding(.top, 80)
-    }
-
-    private func group<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.footnote.weight(.semibold)).foregroundStyle(STVTheme.secondary).padding(.horizontal, 20)
-            VStack(spacing: 0) { content() }
-                .background(STVTheme.surface, in: RoundedRectangle(cornerRadius: 14))
-                .padding(.horizontal, 16)
-        }
-    }
-
-    private func builtinRow(_ s: DramaSource, _ icon: String) -> some View {
-        HStack {
-            label(s.label, icon)
-            Spacer()
-            Text("内置").font(.caption.weight(.semibold)).foregroundStyle(STVTheme.secondary)
-                .padding(.horizontal, 8).padding(.vertical, 3).background(STVTheme.glass, in: Capsule())
-        }.padding(14)
-    }
-
     private func siteRow(_ s: DramaSource) -> some View {
-        Toggle(isOn: Binding(get: { gate.enabled.contains(s) }, set: { gate.set(s, on: $0) })) {
-            label(s.label, "globe", sub: Self.note(s))
-        }.padding(14)
+        DSToggleRow(s.label, isOn: Binding(get: { gate.enabled.contains(s) }, set: { gate.set(s, on: $0) }), icon: "globe", subtitle: Self.note(s))
     }
 
     static func note(_ s: DramaSource) -> String {
@@ -148,22 +122,6 @@ struct SourcesView: View {
         default: s.pluginID != nil ? "JS 插件 · " + (PluginStore.snapshot(s.pluginID!)?.manifest.httpDomains.first ?? "") :
                  s.cmsKey != nil ? "苹果 CMS 采集站 · " + (CMSStore.site(s.cmsKey!).flatMap { URL(string: $0.api)?.host } ?? "") : s.siteHost
         }
-    }
-
-    private func label(_ t: String, _ icon: String, sub: String? = nil) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon).frame(width: 24).foregroundStyle(STVTheme.text)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(t).foregroundStyle(STVTheme.text)
-                if let sub { Text(sub).font(.caption).foregroundStyle(STVTheme.secondary) }
-            }
-        }
-    }
-
-    private var chevron: some View { Image(systemName: "chevron.right").font(.caption).foregroundStyle(STVTheme.secondary) }
-
-    private func actionRow(_ t: String, _ icon: String, _ action: @escaping () async -> Void) -> some View {
-        Button { Task { await action() } } label: { HStack { label(t, icon); Spacer(); chevron }.padding(14) }.buttonStyle(.plain)
     }
 }
 
@@ -192,6 +150,10 @@ struct PlayerCoreLicenses: View {
         Item(id: "dovi", title: "libdovi（dovi_tool dolby_vision crate）", license: "MIT · Copyright (c) quietvoid and contributors",
              links: [("github.com/quietvoid/dovi_tool", "https://github.com/quietvoid/dovi_tool")],
              note: "Dolby Vision Profile 5/7/8 RPU 解析（MIT）。", files: ["LibDovi-LICENSE"]),
+        Item(id: "cpython", title: "CPython 3.13（Python 脚本运行时）", license: "PSF-2.0 · Copyright © Python Software Foundation",
+             links: [("python.org", "https://www.python.org"), ("BeeWare Python-Apple-support 3.13-b18", "https://github.com/beeware/Python-Apple-support/releases/tag/3.13-b18")],
+             note: "运行 TVBox 的 Python 站点脚本；标准库已精简。内含 Expat、libffi、mpdecimal、bzip2、liblzma、HACL* 等组件，全文见下。部分构建不包含该运行时。",
+             files: ["CPython-LICENSE", "CPython-components"]),
     ]
     private func text(_ f: String) -> String {
         Bundle.main.url(forResource: f, withExtension: "txt").flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? f
@@ -205,8 +167,7 @@ struct PlayerCoreLicenses: View {
                     Link(l.0, destination: URL(string: l.1)!).font(.subheadline).tint(STVTheme.accent)
                 }
                 Text(it.note).font(.caption).foregroundStyle(STVTheme.secondary)
-                Button(open == it.id ? "收起许可证全文" : "查看许可证全文") { withAnimation { open = open == it.id ? nil : it.id } }
-                    .font(.subheadline.weight(.semibold)).tint(STVTheme.accent)
+                Button { withAnimation(DS.panel) { open = open == it.id ? nil : it.id } } label: { MiniButtonLabel(title: open == it.id ? "收起许可证全文" : "查看许可证全文") }.buttonStyle(PressScale())
                     .accessibilityIdentifier("licenses.\(it.id)")
                 if open == it.id {
                     ForEach(it.files, id: \.self) { f in
@@ -215,8 +176,8 @@ struct PlayerCoreLicenses: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
-            .background(STVTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+            .padding(16)
+            .dsCard(18)
         }
     }
 }
@@ -240,15 +201,15 @@ struct LicensesView: View {
                         .font(.subheadline).tint(STVTheme.accent)
                     Text("i短剧 的 MissAV / Jable / SupJav / Hanime1 解析逻辑移植并改写自该项目（基于 commit de92300（2026-11-10 复查仍为最新），Python → Swift，HTML 解析改为正则）。修改内容：站点列表、详情与播放地址解析的 Swift 重写，以及与 i短剧 播放器的对接。")
                         .font(.caption).foregroundStyle(STVTheme.secondary)
-                    Button(expanded ? "收起许可证全文" : "查看 Apache-2.0 全文") { withAnimation { expanded.toggle() } }
-                        .font(.subheadline.weight(.semibold)).tint(STVTheme.accent)
+                    Button { withAnimation(DS.panel) { expanded.toggle() } } label: { MiniButtonLabel(title: expanded ? "收起许可证全文" : "查看 Apache-2.0 全文") }.buttonStyle(PressScale())
                     if expanded {
                         Text(licenseText).font(.system(.caption2, design: .monospaced)).foregroundStyle(STVTheme.secondary)
                             .textSelection(.enabled)
                     }
                 }
-                .padding(14)
-                .background(STVTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .dsCard(18)
                 VStack(alignment: .leading, spacing: 8) {
                     Text("yt-dlp").font(.headline).foregroundStyle(STVTheme.text)
                     Text("The Unlicense（公共领域）").font(.subheadline).foregroundStyle(STVTheme.secondary)
@@ -257,8 +218,9 @@ struct LicensesView: View {
                     Text("Eporner / XVideos / XNXX / Pornhub 的页面结构与接口（Eporner xhr 哈希、html5player、mediaDefinitions）参考了 yt-dlp 的对应 extractor，代码为独立的 Swift 实现。")
                         .font(.caption).foregroundStyle(STVTheme.secondary)
                 }
-                .padding(14)
-                .background(STVTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .dsCard(18)
                 VStack(alignment: .leading, spacing: 8) {
                     Text("TDLibKit / TDLib").font(.headline).foregroundStyle(STVTheme.text)
                     Text("TDLibKit：MIT · TDLib：Boost Software License 1.0").font(.subheadline).foregroundStyle(STVTheme.secondary)
@@ -266,22 +228,23 @@ struct LicensesView: View {
                     Link("github.com/tdlib/td", destination: URL(string: "https://github.com/tdlib/td")!).font(.subheadline).tint(STVTheme.accent)
                     Text("用于频道 TDLib 登录（私有频道、频道内搜索、机器人 /start）。只使用你自己填写的 api_id / api_hash。").font(.caption).foregroundStyle(STVTheme.secondary)
                 }
-                .padding(14)
-                .background(STVTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .dsCard(18)
                 VStack(alignment: .leading, spacing: 8) {
                     Text("QuickJS-ng").font(.headline).foregroundStyle(STVTheme.text)
                     Text("MIT License · Copyright © 2017-2024 Fabrice Bellard, Charlie Gordon; © 2023-2025 Ben Noordhuis, Saúl Ibarra Corretgé").font(.subheadline).foregroundStyle(STVTheme.secondary)
                     Link("github.com/quickjs-ng/quickjs", destination: URL(string: "https://github.com/quickjs-ng/quickjs")!).font(.subheadline).tint(STVTheme.accent)
                     Text("插件运行时（v0.10.1，源码内置于 Packages/QuickJS，未修改；沙箱封装 idj_sandbox.c 为本应用代码）。").font(.caption).foregroundStyle(STVTheme.secondary)
-                    Button(qjsExpanded ? "收起许可证全文" : "查看 MIT 全文") { withAnimation { qjsExpanded.toggle() } }
-                        .font(.subheadline.weight(.semibold)).tint(STVTheme.accent)
+                    Button { withAnimation(DS.panel) { qjsExpanded.toggle() } } label: { MiniButtonLabel(title: qjsExpanded ? "收起许可证全文" : "查看 MIT 全文") }.buttonStyle(PressScale())
                     if qjsExpanded {
                         Text(Bundle.main.url(forResource: "quickjs-ng-LICENSE", withExtension: "txt").flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? "MIT")
                             .font(.system(.caption2, design: .monospaced)).foregroundStyle(STVTheme.secondary).textSelection(.enabled)
                     }
                 }
-                .padding(14)
-                .background(STVTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .dsCard(18)
                 PlayerCoreLicenses()
                 VStack(alignment: .leading, spacing: 8) {
                     Text("JMComic-Crawler-Python").font(.headline).foregroundStyle(STVTheme.text)
@@ -289,29 +252,30 @@ struct LicensesView: View {
                     Link("github.com/hect0x7/JMComic-Crawler-Python", destination: URL(string: "https://github.com/hect0x7/JMComic-Crawler-Python")!).font(.subheadline).tint(STVTheme.accent)
                     Text("18comic 插件的图片分段还原（get_num / decode）参考该项目公开的算法，代码为独立的 Swift/JS 实现。").font(.caption).foregroundStyle(STVTheme.secondary)
                 }
-                .padding(14)
-                .background(STVTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .dsCard(18)
                 VStack(alignment: .leading, spacing: 8) {
                     Text("MangaDex API · 包子漫画 · Telegram 网页预览").font(.headline).foregroundStyle(STVTheme.text)
                     Text("漫画与频道解析均为本应用独立实现；MangaDex 只请求全年龄/轻度分级内容。").font(.caption).foregroundStyle(STVTheme.secondary)
                 }
-                .padding(14)
-                .background(STVTheme.surface, in: RoundedRectangle(cornerRadius: 14))
-            }.padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .dsCard(18)
+            }.padding(.horizontal, 16).padding(.top, 4).padding(.bottom, 32)
         }
         .compatDefaultScrollAnchor(DebugScroll.anchor)
-        .background(STVTheme.bg.ignoresSafeArea())
-        .navigationTitle("开源许可")
-        .navigationBarTitleDisplayMode(.inline)
+        .dsNavigation("开源许可")
     }
 }
 
 /// 站点诊断日志 — what the app knows per site (UA, cookie names, cf_clearance expiry) + the CF event log.
 struct SiteLogView: View {
-    @State private var lines: [String] = SiteLog.all()
-    @State private var copied = false
+    @State private var lines: [String] = []
+    @State private var summary: [String] = []
+    @State private var message: String?
 
-    private var summary: [String] {
+    private static func summarize() -> [String] {
         let jar = HTTPCookieStorage.shared.cookies ?? []
         let f = DateFormatter(); f.dateFormat = "MM-dd HH:mm"
         return Sites.all.map { s in
@@ -325,31 +289,33 @@ struct SiteLogView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
+            LazyVStack(alignment: .leading, spacing: 12) {
                 ForEach(summary, id: \.self) { s in
                     Text(s).font(.caption.monospaced()).foregroundStyle(STVTheme.text)
-                        .frame(maxWidth: .infinity, alignment: .leading).padding(12)
-                        .background(STVTheme.surface, in: RoundedRectangle(cornerRadius: 12))
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(14)
+                        .dsCard(16)
                 }
-                Text("事件（最新在下）").font(.subheadline.weight(.semibold)).foregroundStyle(STVTheme.secondary).padding(.top, 6)
+                Text("事件（最新在下）").dsFont(14, .semibold, relativeTo: .subheadline).foregroundStyle(STVTheme.secondary).padding(.top, 6)
                 if lines.isEmpty { Text("暂无记录").font(.caption).foregroundStyle(STVTheme.secondary) }
                 ForEach(Array(lines.enumerated()), id: \.offset) { _, l in
                     Text(l).font(.caption2.monospaced()).foregroundStyle(STVTheme.secondary).textSelection(.enabled)
                 }
-            }.padding(16)
-        }
-        .background(STVTheme.bg.ignoresSafeArea())
-        .navigationTitle("站点诊断日志")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItemGroup(placement: .navigationBarTrailing) {
-                Button(copied ? "已复制" : "复制") {
-                    UIPasteboard.general.string = (summary + [""] + lines).joined(separator: "\n"); copied = true
-                }
-                Button("清空") { SiteLog.clear(); lines = [] }
             }
+            .padding(.horizontal, 16).padding(.bottom, 32)
         }
-        .refreshable { lines = SiteLog.all() }
-        .onAppear { lines = SiteLog.all() }
+        .dsNavigation("站点诊断日志") {
+            DSBarButton(systemName: "doc.on.doc") {
+                UIPasteboard.general.string = (summary + [""] + lines).joined(separator: "\n"); message = "已复制"
+            }
+            .accessibilityLabel("复制")
+            DSBarButton(systemName: "trash") { SiteLog.clear(); lines = []; message = "已清空" }
+                .accessibilityLabel("清空")
+        }
+        .dsToast($message, icon: "checkmark.circle.fill")
+        .refreshable { reload() }
+        // Reading the cookie jar for every site once, not on every body.
+        .onAppear { reload() }
     }
+
+    private func reload() { lines = SiteLog.all(); summary = Self.summarize() }
 }

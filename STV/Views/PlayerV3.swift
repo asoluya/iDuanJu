@@ -1,106 +1,181 @@
 import SwiftUI
 import AVFoundation
 
-/// Player design v3 (player-design-v3/SPEC_ZH.md): monochrome white chrome, brand blue only for the current
-/// episode, the scrub delta and a non-1× rate.
-
-// MARK: Glass
-
-struct PlayerGlass: ViewModifier {
-    var corner: CGFloat
-    var strong = false
-    func body(content: Content) -> some View {
-        content
-            .background {
-                RoundedRectangle(cornerRadius: corner, style: .continuous).fill(.ultraThinMaterial)
-                    .overlay(RoundedRectangle(cornerRadius: corner, style: .continuous).fill(strong ? Color(red: 28/255, green: 30/255, blue: 36/255).opacity(0.84) : Color(white: 0.09).opacity(0.45)))
-            }
-            .overlay { RoundedRectangle(cornerRadius: corner, style: .continuous).strokeBorder(.white.opacity(strong ? 0.12 : 0.14), lineWidth: strong ? 1 : 0.5) }
-            .shadow(color: .black.opacity(strong ? 0.5 : 0), radius: 25, y: 20)
-            .environment(\.colorScheme, .dark)
-    }
-}
+/// Player controls and panels. White on glass; brand blue only for the current episode, the scrub delta and a non-1× rate.
+/// Glass comes from `GlassKit` only: bars, buttons and the panel are glass, rows inside a panel are plain.
 
 extension View {
-    func playerGlass(_ corner: CGFloat, strong: Bool = false) -> some View { modifier(PlayerGlass(corner: corner, strong: strong)) }
+    /// The one panel surface of the player.
+    func playerPanel(_ corner: CGFloat = 28) -> some View {
+        liquidGlass(corner: corner, tone: .panel, onMedia: true).environment(\.colorScheme, .dark)
+    }
 }
 
 // MARK: Tech strip
 
-/// Spec `.tech`: one small muted line, not a collection of badges. Player stays dark in both themes.
+/// One small muted line, not a collection of badges.
 struct PlayerTechStrip: View {
-    let tech: PlayerTech
+    @ObservedObject var telemetry: PlaybackTelemetry
     var landscape = false
     var body: some View {
-        let parts = [tech.resolution, tech.hdr ? "HDR" : "SDR", tech.codec, tech.audio,
-                     tech.fps > 0 ? "\(tech.fps) fps" : ""] .filter { !$0.isEmpty }
-        HStack(spacing: 6) {
-            Text(parts.joined(separator: " · "))
-            if !landscape && !tech.engine.isEmpty { Text(tech.engine).accessibilityIdentifier("player.engine").opacity(0.7) }
-            if !landscape && tech.network > 0 { Text(PlayerTech.speed(tech.network)).monospacedDigit() }
+        if let tech = telemetry.tech {
+            let parts = [tech.resolution, tech.hdr ? "HDR" : "SDR", tech.codec, tech.audio,
+                         tech.fps > 0 ? "\(tech.fps) fps" : ""].filter { !$0.isEmpty }
+            HStack(spacing: 6) {
+                Text(parts.joined(separator: " · "))
+                if !landscape && !tech.engine.isEmpty { Text(tech.engine).accessibilityIdentifier("player.engine").opacity(0.7) }
+                if !landscape && tech.network > 0 { Text(PlayerTech.speed(tech.network)).monospacedDigit() }
+            }
+            .font(.system(size: 11, weight: .medium)).tracking(0.3).foregroundStyle(.white.opacity(0.55))
+            .lineLimit(1).fixedSize().shadow(color: .black.opacity(0.4), radius: 2)
+            .accessibilityElement(children: .combine).accessibilityIdentifier("player.tech")
         }
-        .font(.system(size: 11, weight: .medium)).tracking(0.3).foregroundStyle(.white.opacity(0.55))
-        .lineLimit(1).fixedSize().shadow(color: .black.opacity(0.4), radius: 2)
-        .accessibilityElement(children: .combine).accessibilityIdentifier("player.tech")
+    }
+}
+
+/// iPad drawer footer: what is being decoded.
+struct PlayerDecodeSummary: View {
+    @ObservedObject var telemetry: PlaybackTelemetry
+    let engine: PlayerEngineKind
+    var body: some View {
+        let t = telemetry.tech
+        let parts = [t?.resolution, t?.hdr == true ? "HDR / DV" : nil, t?.codec, t?.audio].compactMap { $0 }.filter { !$0.isEmpty }
+        VStack(alignment: .leading, spacing: 4) {
+            Text("当前解码与音轨")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.6))
+            Text(parts.isEmpty ? "\(engine.short) 就绪" : (parts + [engine.short]).joined(separator: " · "))
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(STVTheme.accent)
+                .lineLimit(2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 
 // MARK: Centre controls
 
-/// ⟲10 · ▶ (76 pt glass, the outer ring doubles as buffer / loading progress) · ⟳10.
+/// ⟲10 · ▶ · ⟳10 as three glass buttons; the ring around ▶ doubles as buffer / loading progress. Live: ▶ only.
 struct PlayerCenterControls: View {
     let co: PlaybackCoordinator
     let onInteract: () -> Void
     var spacing: CGFloat = 44
-    @State private var spin = false
 
     var body: some View {
         let loading = co.readyIndex == nil || (co.waitingForMedia && !co.paused)
-        let buffered = co.duration > 0 ? min(1, co.bufferedUntil / co.duration) : 0
-        HStack(spacing: spacing) {
-            Button { co.seek(by: -10); onInteract() } label: {
-                Image(systemName: "gobackward.10").font(.system(size: 29, weight: .regular)).frame(width: 44, height: 44).opacity(0.94)
-            }.accessibilityLabel("快退10秒").accessibilityIdentifier("player.back10")
-            Button { co.togglePause(); onInteract() } label: {
-                ZStack {
-                    Circle().fill(.ultraThinMaterial).environment(\.colorScheme, .dark)
-                    Circle().fill(Color(red: 20/255, green: 20/255, blue: 24/255).opacity(0.46))
-                    Circle().strokeBorder(.white.opacity(0.18), lineWidth: 1)
-                    if loading {
-                        Circle().trim(from: 0, to: 0.28).stroke(.white, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                            .rotationEffect(.degrees(spin ? 360 : 0))
-                            .animation(.linear(duration: 0.9).repeatForever(autoreverses: false), value: spin)
-                            .onAppear { spin = true }.onDisappear { spin = false }
-                    } else {
-                        Circle().trim(from: 0, to: buffered).stroke(.white.opacity(0.75), style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                            .rotationEffect(.degrees(-90))
-                    }
-                    Image(systemName: co.paused ? "play.fill" : "pause.fill").font(.system(size: 26, weight: .regular))
+        LiquidGlassGroup(spacing: 12) {
+            HStack(spacing: spacing) {
+                if !co.isLive { skip(-10, "gobackward.10", "快退10秒", "player.back10") }
+                Button { co.togglePause(); onInteract() } label: {
+                    Image(systemName: co.paused ? "play.fill" : "pause.fill").font(.system(size: 27, weight: .regular))
                         .offset(x: co.paused ? 2 : 0)
                         .compatSymbolReplace()
+                        .frame(width: 72, height: 72)
+                        .overlay { PlayerBufferRing(clock: co.clock, loading: loading).padding(1) }
+                        .liquidGlass(Circle(), tone: .clear, interactive: true, onMedia: true)
+                        .contentShape(Circle())
                 }
-                .frame(width: 68, height: 68)
+                .accessibilityLabel(co.paused ? "播放" : "暂停").accessibilityIdentifier("player.playPause")
+                if !co.isLive { skip(10, "goforward.10", "快进10秒", "player.fwd10") }
             }
-            .accessibilityLabel(co.paused ? "播放" : "暂停").accessibilityIdentifier("player.playPause")
-            Button { co.seek(by: 10); onInteract() } label: {
-                Image(systemName: "goforward.10").font(.system(size: 29, weight: .regular)).frame(width: 44, height: 44).opacity(0.94)
-            }.accessibilityLabel("快进10秒").accessibilityIdentifier("player.fwd10")
         }
         .buttonStyle(PressScale(scale: 0.92))
         .foregroundStyle(.white)
-        .shadow(color: .black.opacity(0.35), radius: 6)
+    }
+
+    private func skip(_ s: Double, _ symbol: String, _ label: String, _ id: String) -> some View {
+        Button { co.seek(by: s); onInteract() } label: {
+            Image(systemName: symbol).font(.system(size: 24, weight: .regular))
+                .frame(width: 52, height: 52)
+                .liquidGlass(Circle(), tone: .clear, interactive: true, onMedia: true)
+                .contentShape(Circle())
+        }
+        .accessibilityLabel(label).accessibilityIdentifier(id)
+    }
+}
+
+private struct PlayerBufferRing: View {
+    @ObservedObject var clock: PlaybackClock
+    let loading: Bool
+    @State private var spin = false
+    var body: some View {
+        let s = clock.sample
+        let buffered = s.duration > 0 ? min(1, s.bufferedUntil / s.duration) : 0
+        if loading {
+            Circle().trim(from: 0, to: 0.28).stroke(.white, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .rotationEffect(.degrees(spin ? 360 : 0))
+                .animation(.linear(duration: 0.9).repeatForever(autoreverses: false), value: spin)
+                .onAppear { spin = true }.onDisappear { spin = false }
+        } else {
+            Circle().trim(from: 0, to: buffered).stroke(.white.opacity(0.75), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+        }
+    }
+}
+
+/// Loading indicator shown while an episode is being opened.
+struct PlayerLoading: View {
+    var text = "正在载入"
+    @State private var spin = false
+    var body: some View {
+        VStack(spacing: 10) {
+            Circle().trim(from: 0, to: 0.28).stroke(.white, style: StrokeStyle(lineWidth: 2.4, lineCap: .round))
+                .frame(width: 34, height: 34)
+                .rotationEffect(.degrees(spin ? 360 : 0))
+                .animation(.linear(duration: 0.9).repeatForever(autoreverses: false), value: spin)
+            Text(text).font(.system(size: 13, weight: .medium)).foregroundStyle(.white.opacity(0.8))
+        }
+        .shadow(color: .black.opacity(0.5), radius: 6)
+        .onAppear { spin = true }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Error card over the video: what happened, 重试, and where else to go.
+struct PlayerErrorCard: View {
+    let message: String
+    var canVerify = false
+    var hasLines = false
+    var onVerify: () -> Void = {}
+    var onLines: () -> Void = {}
+    let onRetry: () -> Void
+    var body: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "exclamationmark.triangle").font(.system(size: 26, weight: .light)).foregroundStyle(.white.opacity(0.85))
+            Text(message).font(.system(size: 14)).foregroundStyle(.white.opacity(0.9)).multilineTextAlignment(.center)
+            HStack(spacing: 10) {
+                if canVerify { button("去验证", prominent: true, onVerify) }
+                if hasLines { button("换线路", prominent: false, onLines) }
+                button("重试", prominent: !canVerify, onRetry)
+            }
+        }
+        .padding(.horizontal, 22).padding(.vertical, 20)
+        .frame(maxWidth: 320)
+        .playerPanel(26)
+        .padding(24)
+    }
+
+    private func button(_ title: String, prominent: Bool, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(prominent ? STVTheme.onAccent : .white)
+                .padding(.horizontal, 18).frame(height: 38)
+                .background(prominent ? STVTheme.accent : Color.white.opacity(0.14), in: Capsule())
+                .contentShape(Capsule())
+        }.buttonStyle(PressScale())
     }
 }
 
 // MARK: Caption
 
-struct PlayerMetaRow: View {
+struct PlayerMetaRow<Trailing: View>: View {
     let source: String?
     let line: String
     let lineStrong: String
     let rest: String
-    var showSkip = false
-    var onSkip: () -> Void = {}
+    @ViewBuilder var trailing: Trailing
 
     var body: some View {
         HStack(spacing: 8) {
@@ -112,189 +187,117 @@ struct PlayerMetaRow: View {
             (Text(line).foregroundColor(.white.opacity(0.72)) + Text(lineStrong).foregroundColor(.white).fontWeight(.semibold) + Text(rest).foregroundColor(.white.opacity(0.72)))
                 .font(.system(size: 13)).lineLimit(1)
             Spacer(minLength: 8)
-            if showSkip {
-                Button(action: onSkip) {
-                    HStack(spacing: 4) { Text("跳过片头"); Image(systemName: "play.fill").font(.system(size: 8)) }
-                        .font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
-                        .padding(.horizontal, 11).frame(height: 28)
-                        .background(Color(red: 20/255, green: 20/255, blue: 24/255).opacity(0.5), in: Capsule())
-                        .overlay { Capsule().strokeBorder(.white.opacity(0.2), lineWidth: 1) }
-                        .contentShape(Capsule())
-                }.buttonStyle(PressScale()).accessibilityIdentifier("player.skipIntro")
-            }
+            trailing
         }
         .foregroundStyle(.white)
     }
 }
 
-// MARK: Progress
-
-/// v3 bar: full width 3 pt (played white, buffered white 40 %, track white 22 %), 4×16 bar knob; dragging grows
-/// it to 8 pt with a 20 pt round knob and a thumbnail + time bubble. Time row underneath: elapsed · −remaining.
-struct PlayerTimelineV3: View {
-    let co: PlaybackCoordinator
-    @Binding var scrubbing: Bool
-    var onInteract: () -> Void = {}
-    /// Max width of the bubble positioning area (screen coordinates).
-    var landscape = false
-    /// Portrait redesign: times sit inline either side of the track and the 全屏 button closes the row.
-    var onFullscreen: (() -> Void)? = nil
-    /// Landscape redesign: times inline but no 全屏 button (exit lives in the top bar).
-    var inline = false
-
+/// Red dot + 直播, or 回看.
+struct PlayerLiveBadge: View {
+    var replay = false
     var body: some View {
-        if inline || onFullscreen != nil {
-            let t = co.scrubPreview ?? co.time
-            HStack(spacing: 10) {
-                Text(Fmt.clock(Int(t))).accessibilityIdentifier("player.time")
-                PlayerProgressBar(co: co, scrubbing: $scrubbing, onInteract: onInteract)
-                Text("−" + Fmt.clock(Int(max(0, co.duration - t)))).accessibilityIdentifier("player.remaining")
-                if let onFullscreen { Button(action: onFullscreen) {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.white).frame(width: 30, height: 30).contentShape(Rectangle())
-                }
-                .buttonStyle(PressScale()).padding(.leading, 2)
-                .accessibilityLabel("横屏全屏").accessibilityIdentifier("player.fullscreen") }
-            }
-            .font(.system(size: 12, weight: .medium).monospacedDigit())
-            .foregroundStyle(.white.opacity(0.8))
-        } else {
-            stacked
+        HStack(spacing: 5) {
+            if replay { Image(systemName: "clock.arrow.circlepath").font(.system(size: 10, weight: .bold)) }
+            else { Circle().fill(Color(red: 1, green: 0.36, blue: 0.36)).frame(width: 7, height: 7) }
+            Text(replay ? "回看" : "直播").font(.system(size: 11, weight: .bold))
         }
-    }
-
-    private var stacked: some View {
-        VStack(spacing: 2) {
-            PlayerProgressBar(co: co, scrubbing: $scrubbing, onInteract: onInteract)
-            HStack {
-                let t = co.scrubPreview ?? co.time
-                Text(Fmt.clock(Int(t))).accessibilityIdentifier("player.time")
-                Spacer()
-                Text("−" + Fmt.clock(Int(max(0, co.duration - t)))).accessibilityIdentifier("player.remaining")
-            }
-            .font(.system(size: 12, weight: .medium).monospacedDigit())
-            .foregroundStyle(.white.opacity(0.85))
-        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 8).frame(height: 20)
+        .background(.white.opacity(0.16), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .accessibilityIdentifier("player.live")
     }
 }
 
-// MARK: Icon row
+// MARK: Actions
 
 enum PlayerPanel: String, Identifiable {
-    case episodes, quality, rates, audio, subtitles, danmaku, more
+    case episodes, quality, rates, audio, subtitles, danmaku, more, guide
     var id: Self { self }
 }
 
-/// One 44 pt line icon (white 16 % rounded backing while its popover is open).
-struct PlayerRowIcon<Label: View>: View {
+/// One entry of the bottom action bar; portrait and landscape draw the same list.
+struct PlayerAction: Identifiable {
     let id: String
     let a11y: String
-    var active = false
-    let action: () -> Void
-    @ViewBuilder var label: Label
-
-    var body: some View {
-        Button(action: action) {
-            label.foregroundStyle(.white)
-                .frame(width: 44, height: 44)
-                .background(active ? Color.white.opacity(0.16) : .clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(a11y).accessibilityIdentifier(id)
-    }
-}
-
-/// Redesign `.pact`: 23 pt icon over an 11 pt caption that shows the current value (`倍速 1.0×`).
-struct PlayerActionButton<Icon: View>: View {
-    let id: String
-    let a11y: String
+    let symbol: String
     let title: String
     var value: String? = nil
     var active = false
     var accent = false
     var dimmed = false
     let action: () -> Void
-    @ViewBuilder var icon: Icon
+}
 
+/// Portrait: a floating glass toolbar with labelled icons.
+struct PlayerActionBar: View {
+    let actions: [PlayerAction]
     var body: some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                icon.font(.system(size: 20, weight: .regular)).frame(height: 23)
-                    .foregroundStyle(accent ? STVTheme.accent : .white)
-                (Text(title).foregroundColor(.white.opacity(0.72))
-                 + Text(value.map { " " + $0 } ?? "").fontWeight(.semibold).foregroundColor(accent ? STVTheme.accent : .white))
-                    .font(.system(size: 11)).lineLimit(1).fixedSize()
+        HStack(spacing: 2) {
+            ForEach(actions) { a in
+                Button(action: a.action) {
+                    VStack(spacing: 4) {
+                        Image(systemName: a.symbol).font(.system(size: 20, weight: .regular)).frame(height: 23)
+                            .foregroundStyle(a.accent ? STVTheme.accent : .white)
+                        (Text(a.title).foregroundColor(.white.opacity(0.78))
+                         + Text(a.value.map { " " + $0 } ?? "").fontWeight(.semibold).foregroundColor(a.accent ? STVTheme.accent : .white))
+                            .font(.system(size: 11)).lineLimit(1).minimumScaleFactor(0.8)
+                    }
+                    .opacity(a.dimmed ? 0.45 : 1)
+                    .frame(maxWidth: .infinity).padding(.top, 8).padding(.bottom, 7)
+                    .background {
+                        if a.active { RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.white.opacity(0.16)) }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(PressScale())
+                .accessibilityLabel(a.a11y).accessibilityIdentifier(a.id)
+                .accessibilityAddTraits(a.active ? .isSelected : [])
             }
-            .opacity(dimmed ? 0.45 : 1)
-            .frame(maxWidth: .infinity).padding(.top, 7).padding(.bottom, 6)
-            .background(active ? Color.white.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .contentShape(Rectangle())
-            .animation(DS.select, value: active)
         }
-        .buttonStyle(PressScale())
-        .accessibilityLabel(a11y).accessibilityIdentifier(id)
+        .padding(5)
+        .liquidGlass(corner: 24, tone: .clear, interactive: true, onMedia: true)
+        .animation(DS.select, value: actions.map(\.active))
     }
 }
 
-/// Redesign `.pchip`: 34 pt glass capsule, icon + label + current value; `on` turns it accent.
-struct PlayerChip: View {
-    let id: String
-    let a11y: String
-    let symbol: String
-    let title: String
-    var value: String? = nil
-    var on = false
-    var dimmed = false
-    let action: () -> Void
-
+/// Landscape: labelled glass capsules.
+struct PlayerActionChips: View {
+    let actions: [PlayerAction]
     var body: some View {
-        Button(action: action) {
+        LiquidGlassGroup(spacing: 8) {
+            HStack(spacing: 8) {
+                ForEach(actions) { PlayerChip(action: $0) }
+            }
+        }
+    }
+}
+
+struct PlayerChip: View {
+    let action: PlayerAction
+    var body: some View {
+        let on = action.active || action.accent
+        Button(action: action.action) {
             HStack(spacing: 6) {
-                Image(systemName: symbol).font(.system(size: 15, weight: .regular))
+                Image(systemName: action.symbol).font(.system(size: 15, weight: .regular))
                     .foregroundStyle(on ? STVTheme.accent : .white)
-                (Text(title).foregroundColor(on ? STVTheme.accent : .white.opacity(0.8))
-                 + Text(value.map { " " + $0 } ?? "").fontWeight(.semibold).foregroundColor(on ? STVTheme.accent : .white))
+                (Text(action.title).foregroundColor(on ? STVTheme.accent : .white.opacity(0.86))
+                 + Text(action.value.map { " " + $0 } ?? "").fontWeight(.semibold).foregroundColor(on ? STVTheme.accent : .white))
                     .font(.system(size: 13)).lineLimit(1).fixedSize()
             }
-            .padding(.horizontal, 13).frame(height: 34)
-            .background {
-                Capsule().fill(.ultraThinMaterial)
-                    .overlay(Capsule().fill(on ? STVTheme.accent.opacity(0.16) : Color(red: 20/255, green: 20/255, blue: 24/255).opacity(0.46)))
-            }
-            .overlay { Capsule().strokeBorder(on ? STVTheme.accentLine : .white.opacity(0.14), lineWidth: 1) }
-            .environment(\.colorScheme, .dark)
-            .opacity(dimmed ? 0.45 : 1)
+            .padding(.horizontal, 13).frame(height: 36)
+            .liquidGlassCapsule(tone: .clear, interactive: true, onMedia: true)
+            .opacity(action.dimmed ? 0.45 : 1)
             .contentShape(Capsule())
             .animation(DS.select, value: on)
         }
         .buttonStyle(PressScale())
-        .accessibilityLabel(a11y).accessibilityIdentifier(id)
+        .accessibilityLabel(action.a11y).accessibilityIdentifier(action.id)
         .accessibilityAddTraits(on ? .isSelected : [])
     }
 }
 
-struct OutlinedTag: View {
-    let text: String
-    var body: some View {
-        Text(text).font(.system(size: 11, weight: .bold)).lineLimit(1).fixedSize()
-            .padding(.horizontal, 5).padding(.vertical, 2)
-            .overlay { RoundedRectangle(cornerRadius: 4).strokeBorder(.white, lineWidth: 1.2) }
-    }
-}
-
-struct DanmakuGlyph: View {
-    let on: Bool
-    var body: some View {
-        Text("弹").font(.system(size: 13, weight: .bold))
-            .foregroundStyle(on ? .black : .white)
-            .frame(width: 22, height: 22)
-            .background(on ? Color.white : .clear, in: RoundedRectangle(cornerRadius: 5))
-            .overlay { if !on { RoundedRectangle(cornerRadius: 5).strokeBorder(.white, lineWidth: 1.2) } }
-    }
-}
-
-// MARK: Popovers
+// MARK: Panel pieces
 
 struct PlayerPopoverRow: View {
     let title: String
@@ -302,31 +305,29 @@ struct PlayerPopoverRow: View {
     var subtitle: String? = nil
     let selected: Bool
     var id: String? = nil
-    var rowHeight: CGFloat = 44
+    var rowHeight: CGFloat = 46
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            // Redesign `.prow`: 46 pt, value on the right; the current row is accent-soft with an accent ✓.
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(title).font(.system(size: 15, weight: selected ? .semibold : .regular))
-                    if let subtitle { Text(subtitle).font(.system(size: 12)).foregroundStyle(.white.opacity(0.55)) }
+                    Text(title).font(.system(size: 15, weight: selected ? .semibold : .regular)).lineLimit(1)
+                    if let subtitle { Text(subtitle).font(.system(size: 12)).foregroundStyle(.white.opacity(0.6)).lineLimit(1) }
                 }
                 Spacer(minLength: 8)
                 if !detail.isEmpty {
                     Text(detail).font(.system(size: 12, weight: selected ? .semibold : .regular).monospacedDigit())
-                        .foregroundStyle(selected ? STVTheme.accent.opacity(0.8) : .white.opacity(0.55)).lineLimit(1)
+                        .foregroundStyle(selected ? STVTheme.accent.opacity(0.85) : .white.opacity(0.6)).lineLimit(1)
                 }
                 if selected { Image(systemName: "checkmark").font(.system(size: 14, weight: .semibold)).foregroundStyle(STVTheme.accent) }
             }
             .foregroundStyle(selected ? STVTheme.accent : .white)
-            .padding(.horizontal, 12).frame(minHeight: subtitle == nil ? (rowHeight == 44 ? 46 : rowHeight) : 54)
-            .background(selected ? STVTheme.accentSoft : .clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .animation(DS.select, value: selected)
+            .padding(.horizontal, 12).frame(minHeight: subtitle == nil ? rowHeight : 54)
+            .background(selected ? Color.white.opacity(0.10) : .clear, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressScale(scale: 0.98))
         .accessibilityIdentifier(id ?? "player.option")
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
@@ -334,7 +335,7 @@ struct PlayerPopoverRow: View {
 
 struct PlayerSectionTitle: View {
     let text: String
-    /// `.psheet h3`: the sheet's own title (17 pt bold) rather than a group label (`.lbl`, 12 pt).
+    /// The panel's own title (17 pt bold) rather than a group label (12 pt).
     var heading = false
     var trailing: String? = nil
     var body: some View {
@@ -344,9 +345,54 @@ struct PlayerSectionTitle: View {
                 Spacer(minLength: 8)
                 if let trailing { Text(trailing).font(.system(size: 12)).foregroundStyle(.white.opacity(0.6)) }
             }
-            .padding(.horizontal, 5).padding(.top, 7).padding(.bottom, 6)
+            .padding(.horizontal, 8).padding(.top, 8).padding(.bottom, 6)
         } else {
-            Text(text).font(.system(size: 12)).foregroundStyle(.white.opacity(0.55)).padding(.horizontal, 5).padding(.top, 14).padding(.bottom, 8)
+            Text(text).font(.system(size: 12, weight: .medium)).foregroundStyle(.white.opacity(0.6)).padding(.horizontal, 8).padding(.top, 14).padding(.bottom, 8)
+        }
+    }
+}
+
+/// Selectable capsule used inside panels (plain fill: the panel is the glass).
+struct PlayerPanelChip: View {
+    let title: String
+    let selected: Bool
+    var symbol: String? = nil
+    var height: CGFloat = 32
+    var id: String? = nil
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                if let symbol { Image(systemName: symbol).font(.system(size: 12, weight: .semibold)) }
+                Text(title).font(.system(size: 13, weight: selected ? .semibold : .regular)).lineLimit(1)
+            }
+            .foregroundStyle(selected ? STVTheme.accent : .white.opacity(0.88))
+            .padding(.horizontal, 13).frame(height: height)
+            .background(selected ? Color.white.opacity(0.18) : Color.white.opacity(0.08), in: Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(PressScale())
+        .accessibilityIdentifier(id ?? "player.chip")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+struct PlayerChipScroller: View {
+    let titles: [String]
+    let selected: Int?
+    var height: CGFloat = 32
+    let id: String
+    let onTap: (Int) -> Void
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(titles.indices, id: \.self) { i in
+                        PlayerPanelChip(title: titles[i], selected: i == selected, height: height, id: "\(id).\(i)") { onTap(i) }.id(i)
+                    }
+                }
+            }
+            .onAppear { if let selected { proxy.scrollTo(selected, anchor: .center) } }
         }
     }
 }
@@ -354,7 +400,7 @@ struct PlayerSectionTitle: View {
 struct SpeedPopover: View {
     let current: Double
     var landscape = false
-    /// Active core's ceiling (AetherEngine clamps video to 2×; AVPlayer 3×).
+    /// Active core's ceiling.
     var maxRate: Double = 3
     let onPick: (Double) -> Void
     static let portraitSteps: [Double] = [0.5, 0.75, 1, 1.25, 1.5, 2, 3]
@@ -363,10 +409,10 @@ struct SpeedPopover: View {
         VStack(alignment: .leading, spacing: 1) {
             if !landscape { PlayerSectionTitle(text: "倍速", heading: true, trailing: "长按画面临时 2×") }
             ForEach((landscape ? Array(Self.portraitSteps.prefix(6)) : Self.portraitSteps).filter { $0 <= maxRate + 0.001 }, id: \.self) { r in
-                PlayerPopoverRow(title: Self.label(r), selected: abs(r - current) < 0.01, id: "player.rate.\(r)", rowHeight: landscape ? 37 : 44) { onPick(r) }
+                PlayerPopoverRow(title: Self.label(r), selected: abs(r - current) < 0.01, id: "player.rate.\(r)", rowHeight: landscape ? 37 : 46) { onPick(r) }
             }
         }
-        .padding(.horizontal, 11).padding(.top, 9).padding(.bottom, 8)
+        .padding(.horizontal, 10).padding(.vertical, 9)
     }
 
     static func label(_ r: Double) -> String {
@@ -380,13 +426,22 @@ struct QualityPopover: View {
     let chosen: HGStream?
     let sources: [(title: String, detail: String, current: Bool, action: () -> Void)]
     var streamsTitle = "画质"
+    var lines: [HGPlayLine] = []
+    var lineIndex = 0
+    var onLine: (Int) -> Void = { _ in }
     let onPick: (HGStream) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
-            PlayerSectionTitle(text: streamsTitle, heading: true)
+            PlayerSectionTitle(text: streams.isEmpty && !lines.isEmpty ? "线路" : streamsTitle, heading: true)
             ForEach(streams) { s in
                 PlayerPopoverRow(title: s.quality ?? "自动", detail: Self.detail(s), selected: s == chosen, id: "player.stream") { onPick(s) }
+            }
+            if lines.count > 1 {
+                if !streams.isEmpty { PlayerSectionTitle(text: "线路 · \(lines.count)") }
+                ForEach(lines.indices, id: \.self) { i in
+                    PlayerPopoverRow(title: lines[i].name, detail: "\(lines[i].episodes.count) 集", selected: i == lineIndex, id: "player.line") { onLine(i) }
+                }
             }
             if !sources.isEmpty {
                 PlayerSectionTitle(text: "播放源")
@@ -396,7 +451,7 @@ struct QualityPopover: View {
                 }
             }
         }
-        .padding(.horizontal, 11).padding(.top, 9).padding(.bottom, 8)
+        .padding(.horizontal, 10).padding(.vertical, 9)
     }
 
     static func detail(_ s: HGStream) -> String {
@@ -429,110 +484,126 @@ struct TrackPopover: View {
                 }
             }
         }
-        .padding(.horizontal, 11).padding(.top, 9).padding(.bottom, 8)
+        .padding(.horizontal, 10).padding(.vertical, 9)
     }
 }
 
-/// Short drama: season chips → 30-episode group chips → 6-column grid. Long video: a list (ref_2).
+/// 选集: season chips → line chips → range chips → grid (numbers for dramas, titles for multi-line titles, rows for long videos).
 struct EpisodesPopover: View {
+    enum Style { case numbers, titles, rows }
     let episodes: [HGEpisode]
     let current: Int
     let seasons: [(id: String, title: String)]
     let currentSeason: String?
-    let listStyle: Bool
+    let style: Style
+    var lines: [HGPlayLine] = []
+    var lineIndex = 0
     var dateLine: String? = nil
     let onPick: (Int) -> Void
     var onSeason: (String) -> Void = { _ in }
+    var onLine: (Int) -> Void = { _ in }
     @Environment(\.layoutMetrics) private var layout
     @State private var group = 0
+    @State private var reversed = false
 
     var body: some View {
         let ranges = EpisodeGroups.ranges(total: episodes.count)
         VStack(alignment: .leading, spacing: 12) {
             if episodes.isEmpty {
                 Text("分集还在加载").font(.system(size: 14)).foregroundStyle(.white.opacity(0.7)).frame(minHeight: 44)
-            } else if !listStyle {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("选集").font(.system(size: 17, weight: .bold))
-                    Spacer()
-                    Text("共 \(episodes.count) 集 · 更新至 \(episodes.last?.ep ?? episodes.count) 集").font(.system(size: 12)).foregroundStyle(.white.opacity(0.6))
-                }
+            } else {
+                if style != .rows { header }
                 if seasons.count > 1 {
-                    chips(seasons.map(\.title), selected: seasons.firstIndex { $0.id == currentSeason }, height: 32, font: 14, id: "player.season") { i in
-                        onSeason(seasons[i].id)
-                    }
+                    PlayerChipScroller(titles: seasons.map(\.title), selected: seasons.firstIndex { $0.id == currentSeason }, id: "player.season") { onSeason(seasons[$0].id) }
                 }
-                if ranges.count > 1 {
-                    chips(ranges.map { EpisodeGroups.label($0, episodes: episodes) }, selected: group, height: 28, font: 13, id: "player.epgroup") { i in
+                if lines.count > 1 {
+                    PlayerChipScroller(titles: lines.map(\.name), selected: lineIndex, id: "player.linechip", onTap: onLine)
+                }
+                if style != .rows, ranges.count > 1 {
+                    PlayerChipScroller(titles: ranges.map { EpisodeGroups.label($0, episodes: episodes) }, selected: group, height: 28, id: "player.epgroup") { i in
                         withAnimation(.compatSnappy) { group = i }
                     }
                 }
-                let r = ranges.indices.contains(group) ? ranges[group] : EpisodeRange(0, max(0, episodes.count - 1))
-                ScrollView {
-                    LazyVGrid(columns: layout.episodeGridItems(spacing: 8), spacing: 8) {
-                        ForEach(Array(r.start...min(r.end, episodes.count - 1)), id: \.self) { i in
-                            let on = i == current
-                            Button { onPick(i) } label: {
-                                Text("\(episodes[i].ep)").font(.system(size: 15, weight: .semibold).monospacedDigit())
-                                    .frame(maxWidth: .infinity, minHeight: 44)
-                                    .background(on ? STVTheme.accentSoft : STVTheme.glass, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                    .overlay { if on { RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(STVTheme.accentLine, lineWidth: 1) } }
-                                    .overlay(alignment: .topTrailing) { if on { Circle().fill(STVTheme.accent).frame(width: 5, height: 5).padding(6) } }
-                                    .foregroundStyle(on ? STVTheme.accent : .white)
-                            }
-                            .buttonStyle(PressScale())
-                            .accessibilityIdentifier("player.ep.\(episodes[i].ep)")
-                        }
-                    }
-                }
-                .scrollIndicators(.hidden)
-            } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(spacing: 1) {
-                            ForEach(episodes.indices, id: \.self) { i in
-                                let e = episodes[i]
-                                PlayerPopoverRow(title: "S1:E\(e.ep)  " + (e.title.isEmpty ? "第\(e.ep)集" : e.title),
-                                                 detail: e.duration > 0 ? "\(max(1, e.duration / 60)) 分钟" : "",
-                                                 subtitle: dateLine, selected: i == current, id: "player.ep.\(e.ep)") { onPick(i) }
-                                    .id(i)
-                            }
-                        }
-                    }
-                    .scrollIndicators(.hidden)
-                    .onAppear { proxy.scrollTo(current, anchor: .center) }
+                switch style {
+                case .numbers: grid(ranges, columns: layout.episodeGridItems(spacing: 8)) { "\(episodes[$0].ep)" }
+                case .titles: grid(ranges, columns: [GridItem(.adaptive(minimum: 92), spacing: 8)]) { episodes[$0].title.isEmpty ? "第\(episodes[$0].ep)集" : episodes[$0].title }
+                case .rows: rows
                 }
             }
         }
         .foregroundStyle(.white)
-        .padding(listStyle ? 9 : 16)
+        .padding(style == .rows ? 10 : 16)
         .onAppear { if let i = ranges.firstIndex(where: { current >= $0.start && current <= $0.end }) { group = i } }
     }
 
-    private func chips(_ titles: [String], selected: Int?, height: CGFloat, font: CGFloat, id: String, onTap: @escaping (Int) -> Void) -> some View {
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text("选集").font(.system(size: 17, weight: .bold))
+            Spacer()
+            Text("共 \(episodes.count) 集").font(.system(size: 12)).foregroundStyle(.white.opacity(0.6))
+            Button { withAnimation(.compatSnappy) { reversed.toggle() } } label: {
+                Label(reversed ? "倒序" : "正序", systemImage: "arrow.up.arrow.down")
+                    .font(.system(size: 12, weight: .medium)).foregroundStyle(.white.opacity(0.8)).contentShape(Rectangle())
+            }
+            .buttonStyle(PressScale()).accessibilityIdentifier("player.eporder")
+        }
+    }
+
+    private func grid(_ ranges: [EpisodeRange], columns: [GridItem], label: @escaping (Int) -> String) -> some View {
+        let r = ranges.indices.contains(group) ? ranges[group] : EpisodeRange(0, max(0, episodes.count - 1))
+        let range = Array(r.start...max(r.start, min(r.end, episodes.count - 1)))
+        return ScrollView {
+            LazyVGrid(columns: columns, spacing: 8) {
+                ForEach(reversed ? range.reversed() : range, id: \.self) { i in
+                    let on = i == current
+                    Button { onPick(i) } label: {
+                        Text(label(i)).font(.system(size: style == .numbers ? 15 : 13, weight: .semibold).monospacedDigit())
+                            .lineLimit(style == .numbers ? 1 : 2).multilineTextAlignment(.center).padding(.horizontal, 4)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .background(Color.white.opacity(on ? 0.20 : 0.08), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                            .overlay(alignment: .topTrailing) { if on { Circle().fill(STVTheme.accent).frame(width: 5, height: 5).padding(6) } }
+                            .foregroundStyle(on ? STVTheme.accent : .white)
+                    }
+                    .buttonStyle(PressScale())
+                    .accessibilityIdentifier("player.ep.\(episodes[i].ep)")
+                    .accessibilityAddTraits(on ? .isSelected : [])
+                }
+            }
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    private var rows: some View {
         ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(titles.indices, id: \.self) { i in
-                        let on = i == selected
-                        Button { onTap(i) } label: {
-                            Text(titles[i]).font(.system(size: font, weight: on ? .semibold : .regular))
-                                .padding(.horizontal, height > 30 ? 14 : 12).frame(height: height)
-                                .background(on ? STVTheme.thumb : STVTheme.glass, in: Capsule())
-                                .foregroundStyle(on ? STVTheme.text : STVTheme.secondary)
-                        }
-                        .buttonStyle(PressScale()).id(i)
-                        .accessibilityIdentifier("\(id).\(i)")
+            ScrollView {
+                LazyVStack(spacing: 1) {
+                    ForEach(episodes.indices, id: \.self) { i in
+                        let e = episodes[i]
+                        PlayerPopoverRow(title: (episodes.count > 1 ? "E\(e.ep)  " : "") + (e.title.isEmpty ? "第\(e.ep)集" : e.title),
+                                         detail: e.duration > 0 ? "\(max(1, e.duration / 60)) 分钟" : "",
+                                         subtitle: dateLine, selected: i == current, id: "player.ep.\(e.ep)") { onPick(i) }
+                            .id(i)
                     }
                 }
             }
-            .onAppear { if let selected { proxy.scrollTo(selected, anchor: .leading) } }
+            .scrollIndicators(.hidden)
+            .onAppear { proxy.scrollTo(current, anchor: .center) }
         }
     }
 }
 
-/// Custom Liquid Glass `更多设置` panel (replaces `SwiftUI.Menu` so 0.25 s playback ticks never trigger
-/// `UIContextMenuInteraction.updateVisibleMenu` backdrop-recalculation flicker on iOS 26/27; synced 1:1 with Android `MoreSettingsPanel`).
+// MARK: More settings
+
+/// Feeds the pre-buffer figure to the panel without making the page observe it.
+struct MoreSettingsHost<Content: View>: View {
+    @ObservedObject var telemetry: PlaybackTelemetry
+    let content: (String?) -> Content
+    var body: some View {
+        content(telemetry.prebuffer.map { $0.lowStorage ? "存储不足，已停止预缓冲" : "已预缓冲 \($0.bytes / 1_048_576) MB" })
+    }
+}
+
+/// `更多设置` panel (a SwiftUI `Menu` would rebuild its backdrop on every change; synced 1:1 with Android `MoreSettingsPanel`).
 struct MoreSettingsPopover: View {
     let fillScreen: Bool
     let enhanceLevel: Int
@@ -541,6 +612,7 @@ struct MoreSettingsPopover: View {
     let sleepMode: Int
     let autoNext: Bool
     let autoNextDrama: Bool
+    let showAutoNext: Bool
     let showAutoNextDrama: Bool
     let showTech: Bool
     let muted: Bool
@@ -568,25 +640,22 @@ struct MoreSettingsPopover: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("更多设置")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(.white)
+                    Text("更多设置").font(.system(size: 17, weight: .bold)).foregroundStyle(.white)
                     if let sub = sleepSubtitle, !sub.isEmpty {
-                        Text(sub)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.white.opacity(0.55))
+                        Text(sub).font(.system(size: 11)).foregroundStyle(.white.opacity(0.6))
                     }
                 }
                 Spacer()
                 Button(action: onClose) {
                     Image(systemName: "xmark")
                         .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(.white.opacity(0.78))
-                        .frame(width: 28, height: 28)
-                        .background(Color.white.opacity(0.10), in: Circle())
+                        .foregroundStyle(.white.opacity(0.85))
+                        .frame(width: 30, height: 30)
+                        .background(Color.white.opacity(0.12), in: Circle())
+                        .frame(width: 44, height: 44).contentShape(Circle())
                 }
                 .buttonStyle(PressScale())
                 .accessibilityLabel("关闭")
@@ -595,147 +664,64 @@ struct MoreSettingsPopover: View {
             if showDanmaku {
                 Button(action: onOpenDanmaku) {
                     HStack(spacing: 10) {
-                        Image(systemName: "slider.horizontal.3")
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.86))
-                        Text("弹幕设置")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(.white)
+                        Image(systemName: "slider.horizontal.3").font(.system(size: 15, weight: .medium)).foregroundStyle(.white.opacity(0.9))
+                        Text("弹幕设置").font(.system(size: 14, weight: .medium)).foregroundStyle(.white)
                         Spacer()
-                        Text(danmakuSummary)
-                            .font(.system(size: 12))
-                            .foregroundStyle(.white.opacity(0.55))
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.50))
+                        Text(danmakuSummary).font(.system(size: 12)).foregroundStyle(.white.opacity(0.6))
+                        Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white.opacity(0.5))
                     }
-                    .padding(.horizontal, 12)
-                    .frame(height: 44)
-                    .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.white.opacity(0.12), lineWidth: 0.8))
+                    .padding(.horizontal, 12).frame(height: 46)
+                    .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(PressScale())
             }
 
             optionSection("画面比例", items: [("适应", false), ("铺满", true)], selected: fillScreen, onSelect: onFillScreen)
-
             optionSection("画质增强", items: [("关闭", 0), ("标准", 1), ("强效", 2)], selected: enhanceLevel, onSelect: onEnhance)
-
             if isNativeHdr {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("SDR 转 HDR · 当前片源已是原生 HDR")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.42))
-                    HStack(spacing: 8) {
-                        Text("原生 HDR")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(STVTheme.accent)
-                            .padding(.horizontal, 13)
-                            .padding(.vertical, 7)
-                            .background(STVTheme.accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(STVTheme.accent.opacity(0.45), lineWidth: 0.8))
-                        Spacer()
-                    }
-                    .opacity(0.55)
-                }
+                optionSection("SDR 转 HDR · 当前片源已是原生 HDR", items: [("原生 HDR", true)], selected: true, onSelect: { _ in })
+                    .opacity(0.55).allowsHitTesting(false)
             } else {
                 optionSection("SDR 转 HDR (逆色调映射)", items: [("关闭", false), ("开启", true)], selected: sdrToHdr, onSelect: onSdrToHdr)
             }
-
-            optionSection(
-                "定时关闭",
-                items: [("关", 0), ("本集完", -1), ("15分", 15), ("30分", 30), ("60分", 60)],
-                selected: sleepMode,
-                onSelect: onSleep
-            )
-
-            optionSection("自动连播", items: [("开启", true), ("关闭", false)], selected: autoNext, onSelect: onAutoNext)
-
+            optionSection("定时关闭", items: [("关", 0), ("本集完", -1), ("15分", 15), ("30分", 30), ("60分", 60)], selected: sleepMode, onSelect: onSleep)
+            if showAutoNext {
+                optionSection("自动连播", items: [("开启", true), ("关闭", false)], selected: autoNext, onSelect: onAutoNext)
+            }
             if showAutoNextDrama {
                 optionSection("播完连刷推荐", items: [("开启", true), ("关闭", false)], selected: autoNextDrama, onSelect: onAutoNextDrama)
             }
 
-            // Quick utility pills (技术信息 / 静音 / 复制剧名)
-            VStack(alignment: .leading, spacing: 6) {
-                Text("快捷操作")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.60))
-                HStack(spacing: 8) {
-                    quickPill(title: "技术信息", symbol: "info.circle", active: showTech, action: onToggleTech)
-                    quickPill(title: muted ? "已静音" : "静音", symbol: muted ? "speaker.slash.fill" : "speaker.wave.2", active: muted, action: onToggleMute)
-                    quickPill(title: "复制剧名", symbol: "doc.on.doc", active: false, action: onCopyTitle)
-                }
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 16)
-        .environment(\.colorScheme, .dark)
-    }
-
-    private func optionSection<T: Equatable>(
-        _ label: String,
-        items: [(String, T)],
-        selected: T,
-        onSelect: @escaping (T) -> Void
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(label)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.white.opacity(0.60))
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(items.indices, id: \.self) { idx in
-                        let pair = items[idx]
-                        let on = pair.1 == selected
-                        Button {
-                            if !on {
-                                UISelectionFeedbackGenerator().selectionChanged()
-                                onSelect(pair.1)
-                            }
-                        } label: {
-                            Text(pair.0)
-                                .font(.system(size: 12, weight: on ? .semibold : .regular))
-                                .foregroundStyle(on ? STVTheme.accent : .white.opacity(0.86))
-                                .padding(.horizontal, 13)
-                                .padding(.vertical, 7)
-                                .background(
-                                    on ? STVTheme.accent.opacity(0.18) : Color.white.opacity(0.08),
-                                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .strokeBorder(on ? STVTheme.accent.opacity(0.55) : Color.white.opacity(0.12), lineWidth: 0.8)
-                                )
-                        }
-                        .buttonStyle(PressScale())
+            VStack(alignment: .leading, spacing: 8) {
+                Text("快捷操作").font(.system(size: 12, weight: .medium)).foregroundStyle(.white.opacity(0.6))
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        PlayerPanelChip(title: "技术信息", selected: showTech, symbol: "info.circle", height: 34, action: onToggleTech)
+                        PlayerPanelChip(title: muted ? "已静音" : "静音", selected: muted, symbol: muted ? "speaker.slash.fill" : "speaker.wave.2", height: 34, action: onToggleMute)
+                        PlayerPanelChip(title: "复制剧名", selected: false, symbol: "doc.on.doc", height: 34, action: onCopyTitle)
                     }
                 }
             }
         }
+        .padding(.leading, 18).padding(.trailing, 14).padding(.vertical, 14)
     }
 
-    private func quickPill(title: String, symbol: String, active: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                Image(systemName: symbol)
-                    .font(.system(size: 12, weight: .semibold))
-                Text(title)
-                    .font(.system(size: 12, weight: active ? .semibold : .regular))
-                    .lineLimit(1)
+    private func optionSection<T: Equatable>(_ label: String, items: [(String, T)], selected: T, onSelect: @escaping (T) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(label).font(.system(size: 12, weight: .medium)).foregroundStyle(.white.opacity(0.6))
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(items.indices, id: \.self) { idx in
+                        let on = items[idx].1 == selected
+                        PlayerPanelChip(title: items[idx].0, selected: on) {
+                            guard !on else { return }
+                            UISelectionFeedbackGenerator().selectionChanged()
+                            onSelect(items[idx].1)
+                        }
+                    }
+                }
             }
-            .foregroundStyle(active ? STVTheme.accent : .white.opacity(0.86))
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .background(
-                active ? STVTheme.accent.opacity(0.18) : Color.white.opacity(0.08),
-                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(active ? STVTheme.accent.opacity(0.55) : Color.white.opacity(0.12), lineWidth: 0.8)
-            )
         }
-        .buttonStyle(PressScale())
     }
 }

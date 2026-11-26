@@ -8,16 +8,6 @@ extension Animation {
     static let compatSnappy: Animation = .spring(response: 0.3, dampingFraction: 0.85)
 }
 
-private struct CompatRectKey: PreferenceKey {
-    static var defaultValue: CGRect = .zero
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
-}
-
-private struct CompatSizeKey: PreferenceKey {
-    static var defaultValue: CGSize = .zero
-    static func reduce(value: inout CGSize, nextValue: () -> CGSize) { value = nextValue() }
-}
-
 extension View {
     /// Cross-version `.onChange(of:)` supporting iOS 16+ without deprecation warnings or iOS 17-only closures.
     @ViewBuilder
@@ -44,12 +34,13 @@ extension View {
         if #available(iOS 18.0, *) {
             self.onGeometryChange(for: CGRect.self) { $0.frame(in: space) } action: { action($0) }
         } else {
+            // No PreferenceKey: nested users of one key overwrite each other's value.
             self.background(
                 GeometryReader { geo in
-                    Color.clear.preference(key: CompatRectKey.self, value: geo.frame(in: space))
+                    let f = geo.frame(in: space)
+                    Color.clear.onAppear { action(f) }.compatOnChange(of: f) { v in action(v) }
                 }
             )
-            .onPreferenceChange(CompatRectKey.self, perform: action)
         }
     }
 
@@ -61,15 +52,14 @@ extension View {
         } else {
             self.background(
                 GeometryReader { geo in
-                    Color.clear.preference(key: CompatSizeKey.self, value: geo.size)
+                    Color.clear.onAppear { action(geo.size) }.compatOnChange(of: geo.size) { v in action(v) }
                 }
             )
-            .onPreferenceChange(CompatSizeKey.self, perform: action)
         }
     }
 
     /// iOS 16+ replacement for `.onScrollGeometryChange(for: Bool.self)` threshold detection.
-    /// On iOS 18+, uses native `onScrollGeometryChange`; on iOS 16-17, attach `CompatScrollProbe` at the top of the ScrollView content.
+    /// On iOS 18+, uses native `onScrollGeometryChange`; on iOS 16–17 the scroll view's content carries `compatScrollContent()`.
     @ViewBuilder
     func compatOnScrolled(threshold: CGFloat = 4, action: @escaping (Bool) -> Void) -> some View {
         if #available(iOS 18.0, *) {
@@ -77,7 +67,22 @@ extension View {
                 $0.contentOffset.y + $0.contentInsets.top > threshold
             } action: { _, v in action(v) }
         } else {
+            self.modifier(CompatScrolled(threshold: threshold, action: action))
+        }
+    }
+
+    /// Put on the content inside a ScrollView that uses `compatOnScrolled` (no-op on iOS 18+).
+    @ViewBuilder
+    func compatScrollContent() -> some View {
+        if #available(iOS 18.0, *) {
             self
+        } else {
+            self.background(alignment: .top) {
+                GeometryReader { g in
+                    Color.clear.preference(key: CompatScrollKey.self, value: g.frame(in: .named(CompatScrolled.space)).minY)
+                }
+                .frame(height: 0)
+            }
         }
     }
 
@@ -166,6 +171,30 @@ extension View {
     }
 }
 
+private struct CompatScrollKey: PreferenceKey {
+    static var defaultValue: CGFloat? { nil }
+    static func reduce(value: inout CGFloat?, nextValue: () -> CGFloat?) { value = value ?? nextValue() }
+}
+
+/// iOS 16–17 scroll threshold: the first reported position is the resting one (content insets included).
+private struct CompatScrolled: ViewModifier {
+    static let space = "compat.scroll"
+    let threshold: CGFloat
+    let action: (Bool) -> Void
+    @State private var rest: CGFloat?
+    @State private var last = false
+    func body(content: Content) -> some View {
+        content
+            .coordinateSpace(name: Self.space)
+            .onPreferenceChange(CompatScrollKey.self) { y in
+                guard let y else { return }
+                guard let rest else { self.rest = y; return }
+                let v = rest - y > threshold
+                if v != last { last = v; action(v) }
+            }
+    }
+}
+
 /// iOS 16+ drop-in replacement for `UnevenRoundedRectangle`.
 struct CompatUnevenRoundedRectangle: Shape {
     var topLeadingRadius: CGFloat = 0
@@ -195,37 +224,11 @@ struct CompatUnevenRoundedRectangle: Shape {
     }
 }
 
-/// iOS 16+ drop-in replacement for `ContentUnavailableView`.
+/// Kept for older call sites: the app's own empty state on every system.
 struct CompatEmptyStateView: View {
     let title: String
     let systemImage: String
     var description: String? = nil
 
-    var body: some View {
-        if #available(iOS 17.0, *) {
-            if let description {
-                ContentUnavailableView(title, systemImage: systemImage, description: Text(description))
-            } else {
-                ContentUnavailableView(title, systemImage: systemImage)
-            }
-        } else {
-            VStack(spacing: 10) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 40, weight: .light))
-                    .foregroundStyle(STVTheme.secondary)
-                Text(title)
-                    .font(.headline)
-                    .foregroundStyle(STVTheme.text)
-                if let description {
-                    Text(description)
-                        .font(.subheadline)
-                        .foregroundStyle(STVTheme.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 24)
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 32)
-        }
-    }
+    var body: some View { DSEmptyState(title, systemImage: systemImage, message: description) }
 }
