@@ -177,8 +177,15 @@ internal fun homePages(): List<HomePageRef> {
         if (app.manga.providers.isNotEmpty()) add(built(HomeSource.manga))
     }
     val order = app.settings.homePageOrder
-    if (order.isEmpty()) return natural
+    if (order.isEmpty()) return natural.sortedBy { defaultChannelRank(it) }
     return natural.sortedBy { val i = order.indexOf(it.key); if (i < 0) Int.MAX_VALUE else i }
+}
+
+/** Default channel order (no user-saved order): 红果短剧 first, 4K影视 second, the rest in natural order. */
+private fun defaultChannelRank(p: HomePageRef): Int = when {
+    p.key.startsWith("plugin:") && p.key.contains("hongguo") -> 0
+    p.key == "plugin:com.idj.bundled.4kvm" -> 1
+    else -> 2
 }
 
 /** A feed tells the home header whether it is scrolled; the header then pins (iOS `onScrolled`). */
