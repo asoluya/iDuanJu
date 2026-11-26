@@ -54,6 +54,20 @@ class PluginStore(private val ctx: Context,
         File(root, id).deleteRecursively(); plugins.removeAll { it.id == id }; save()
     }
 
+    /** One-time auto-install of the plugins bundled in assets/plugins: each bundled id is seeded at most once (recorded in prefs), so a plugin the user removes is never resurrected. Blocking; call off the main thread. */
+    fun seedBundled() {
+        val done = sp.getStringSet("bundledSeeded", emptySet())!!.toMutableSet()
+        var changed = false
+        for (f in bundled()) {
+            val text = runCatching { bundledText(f) }.getOrNull() ?: continue
+            val id = runCatching { PluginBundle.parse(text).manifest.id }.getOrNull() ?: continue
+            if (id in done) continue
+            if (plugins.none { it.id == id }) runCatching { install(text, "内置") }
+            done += id; changed = true
+        }
+        if (changed) sp.edit().putStringSet("bundledSeeded", done).apply()
+    }
+
     fun setEnabled(id: String, on: Boolean) { val i = plugins.indexOfFirst { it.id == id }; if (i >= 0) { plugins[i] = plugins[i].copy(enabled = on); save() } }
 
     fun visible(adultUnlocked: Boolean) = plugins.filter { it.enabled && (!it.adult || adultUnlocked) }

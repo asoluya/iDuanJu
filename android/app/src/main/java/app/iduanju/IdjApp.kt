@@ -52,6 +52,7 @@ class IdjApp : Application(), coil.ImageLoaderFactory {
         cms = app.iduanju.data.CMSStore(this)
         tvbox = app.iduanju.tvbox.TVBoxStore(this)
         plugins = app.iduanju.plugin.PluginStore(this)
+        Thread { runCatching { plugins.seedBundled() } }.start()
         tg = app.iduanju.tg.TGStore(this)
         manga = app.iduanju.manga.MangaStore(this)
         huangguo = app.iduanju.core.huangguo.HuangguoClient(filesDir, app.iduanju.huangguo.PrefsMap(this), app.iduanju.huangguo.WebViewCookieJar)
