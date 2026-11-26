@@ -83,6 +83,19 @@ private fun PlayerContent(seriesId: String, startEp: Int, onBack: () -> Unit, qu
     }
 
     val label = rememberEpisodeLabel(session, startEp)
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, session, activity) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
+                val pipNow = PipHost.isInPip.value || (activity?.isInPictureInPictureMode == true)
+                if (!pipNow && !session.queued && session.player.isPlaying) {
+                    session.player.pause()
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     PlayerWindowEffects(session, ui, enhance, activity, ctx, dims.landscape)
     PlayerMediaSessionEffects(session, ctx, label)
     pip.Effects(inPip)

@@ -589,6 +589,9 @@ final class PlaybackCoordinator: NSObject, @preconcurrency AVPictureInPictureCon
         backgrounded = true
         save(force: true)
         LibraryStore.shared.flush()
+        if !pipActive && !continuePiP && pip?.isPictureInPictureActive != true && !paused {
+            setPaused(true)
+        }
     }
 
     func didBecomeActive() {
