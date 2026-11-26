@@ -5,7 +5,12 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import app.iduanju.ui.components.*
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -155,9 +160,9 @@ object HomeFmt {
 fun formatCount(n: Long) = HomeFmt.count(n)
 
 /** One home page: a built-in source, a 采集站 or a plugin. [key] is stable across label / order changes. */
-private data class HomePageRef(val key: String, val label: String, val target: Any)
+internal data class HomePageRef(val key: String, val label: String, val target: Any)
 
-private fun homePages(): List<HomePageRef> {
+internal fun homePages(): List<HomePageRef> {
     // Pure plugin-driven shell: only show tabs for installed plugins / CMS / user-imported content.
     val app = IdjApp.instance
     val adult = app.cms.adultUnlocked
@@ -165,13 +170,16 @@ private fun homePages(): List<HomePageRef> {
     val novelPrefs = app.getSharedPreferences("novel", android.content.Context.MODE_PRIVATE)
     val hasNovel = (novelPrefs.getString("sources", "[]") ?: "[]").length > 2 ||
         (novelPrefs.getString("books", "[]") ?: "[]").length > 2
-    return buildList {
+    val natural = buildList {
         app.cms.visibleSites.filterNot { it.origin.equals("TVBox", ignoreCase = true) || it.origin.startsWith("TVBox") }.forEach { add(HomePageRef("cms:" + it.key, it.name, it)) }
         app.plugins.visible(adult).filter { it.type == "video" || it.type == "shortdrama" }.forEach { add(HomePageRef("plugin:" + it.id, it.name, it)) }
         if (app.tg.visible(adult).isNotEmpty()) add(built(HomeSource.channels))
         if (app.manga.providers.isNotEmpty()) add(built(HomeSource.manga))
         if (hasNovel) add(built(HomeSource.novel))
     }
+    val order = app.settings.homePageOrder
+    if (order.isEmpty()) return natural
+    return natural.sortedBy { val i = order.indexOf(it.key); if (i < 0) Int.MAX_VALUE else i }
 }
 
 /** A feed tells the home header whether it is scrolled; the header then pins (iOS `onScrolled`). */
@@ -251,6 +259,7 @@ fun HomeScreen(onOpenDetail: (String) -> Unit, onSearch: () -> Unit = {}, onPlay
     LaunchedEffect(immersive) { onImmersiveChanged(immersive) }
     DisposableEffect(Unit) { onDispose { onImmersiveChanged(false) } }
     val pinned by remember { derivedStateOf { scrolled[current.key] == true } }
+    val watchingTop by remember { derivedStateOf { IdjApp.instance.library.continueWatching.take(10) } }
 
     // Local backdrop of what sits behind the header: page colour + ambient glow. The header is a sibling drawn on top
     // of this layer, so its search capsule gets real drawBackdrop lens refraction (LIQUID) / blur (FROSTED). The
@@ -285,6 +294,12 @@ fun HomeScreen(onOpenDetail: (String) -> Unit, onSearch: () -> Unit = {}, onPlay
                     }
                 }
                 Spacer(Modifier.height(10.dp))
+                AnimatedVisibility(visible = !pinned && watchingTop.isNotEmpty(), enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                    Column {
+                        ContinueRow(watchingTop, onOpenDetail)
+                        Spacer(Modifier.height(14.dp))
+                    }
+                }
                 ChannelBar(pages, pager.currentPage, onMore = { HomeChannelSheetOpen.value = true }) { scope.launch { pager.animateScrollToPage(it) } }
                 if (HomeChannelSheetOpen.value) ChannelSheet(pages, pager.currentPage, onDismiss = { HomeChannelSheetOpen.value = false }) { page, sub ->
                     HomeChannelSheetOpen.value = false

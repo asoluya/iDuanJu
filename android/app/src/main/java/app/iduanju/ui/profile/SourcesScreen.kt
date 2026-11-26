@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.iduanju.IdjApp
+import app.iduanju.ui.home.homePages
 import app.iduanju.ui.LocalNavigate
 import app.iduanju.ui.components.DS
 import app.iduanju.ui.components.GlassConfirm
@@ -39,6 +40,7 @@ fun SourcesScreen(onBack: () -> Unit) {
     val adult = ia.cms.adultUnlocked
 
     SettingsPage("片源管理", onBack) {
+        HomeOrderGroup()
         Group("插件与采集站") {
             LinkRow("插件管理", ProfileIcons.plugin, sub = "导入 .idjplugin 插件、订阅、苹果 CMS 采集站；成人插件在这里解锁后才显示") { go("plugins") }
         }
@@ -75,6 +77,45 @@ fun SourcesScreen(onBack: () -> Unit) {
         confirmText = "我已年满 18 周岁",
         onConfirm = { ia.cms.adultUnlocked = true; confirmAdult = false; message = "已显示成人片源" },
     )
+}
+
+/** 首页频道顺序：调整首页顶部频道排（采集站 / 插件 / 频道 / 漫画 / 小说）的先后，点上移/下移立即保存并生效。 */
+@Composable
+private fun HomeOrderGroup() {
+    val c = IdjThemeColors
+    val ia = IdjApp.instance
+    var pages by remember { mutableStateOf(homePages()) }
+    fun apply(list: List<app.iduanju.ui.home.HomePageRef>) {
+        pages = list
+        ia.settings.setHomePageOrder(list.map { it.key })
+    }
+    Group("首页频道顺序", footer = "调整首页顶部频道排的先后顺序，立即生效；之后新增的频道会自动排在末尾。") {
+        if (pages.size < 2) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
+                Text("当前频道不足两个，无需排序", color = c.secondary, fontSize = 14.sp)
+            }
+        } else {
+            pages.forEachIndexed { i, p ->
+                if (i > 0) RowDivider()
+                Row(Modifier.fillMaxWidth().heightIn(min = 50.dp).padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(p.label, color = c.text, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                    TextAction("上移", enabled = i > 0) {
+                        val l = pages.toMutableList(); val t = l[i - 1]; l[i - 1] = l[i]; l[i] = t; apply(l)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    TextAction("下移", enabled = i < pages.size - 1) {
+                        val l = pages.toMutableList(); val t = l[i + 1]; l[i + 1] = l[i]; l[i] = t; apply(l)
+                    }
+                }
+            }
+            if (ia.settings.homePageOrder.isNotEmpty()) {
+                RowDivider()
+                Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp)) {
+                    TextAction("恢复默认顺序") { ia.settings.setHomePageOrder(emptyList()); pages = homePages() }
+                }
+            }
+        }
+    }
 }
 
 @Composable

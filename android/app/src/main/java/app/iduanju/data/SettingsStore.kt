@@ -1,6 +1,10 @@
 package app.iduanju.data
 
 import android.content.Context
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import org.json.JSONArray
 
 /** Public hygiene: optional player device override "did,iid" — never hard-coded. */
 class SettingsStore(ctx: Context) {
@@ -33,6 +37,20 @@ class SettingsStore(ctx: Context) {
     var playbackCacheMB: Int
         get() = sp.getInt("playbackCacheMB", 600).coerceIn(100, 2000)
         set(v) { sp.edit().putInt("playbackCacheMB", v.coerceIn(100, 2000)).apply() }
+
+    /** User-defined order of the home channel tabs (homePages keys); empty = built-in order. State-backed so the home screen re-sorts live. */
+    var homePageOrder: List<String> by mutableStateOf(loadHomePageOrder())
+        private set
+
+    private fun loadHomePageOrder(): List<String> = runCatching {
+        val a = JSONArray(sp.getString("home.pageOrder", "[]") ?: "[]")
+        List(a.length()) { a.getString(it) }
+    }.getOrDefault(emptyList())
+
+    fun setHomePageOrder(keys: List<String>) {
+        homePageOrder = keys
+        sp.edit().putString("home.pageOrder", JSONArray(keys).toString()).apply()
+    }
 
     var danmakuArea: Float
         get() = sp.getFloat("danmakuArea", 1f / 3f)
