@@ -31,16 +31,9 @@ struct CategoryView: View {
                     HStack(alignment: .center, spacing: 12) {
                         UnderlineTabs(items: Mode.allCases, selection: $mode, label: \.rawValue, idPrefix: "category.mode")
                         Spacer(minLength: 0)
-                        NavigationLink(value: Route.search) {
-                            Image(systemName: "magnifyingglass")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(STVTheme.text)
-                                .frame(width: 36, height: 36)
-                                .background(STVTheme.glass, in: Circle())
-                                .overlay(Circle().strokeBorder(STVTheme.glassBorder, lineWidth: 1))
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("搜索")
+                        NavigationLink(value: Route.search) { DSBarLabel(systemName: "magnifyingglass") }
+                            .buttonStyle(GlassPress())
+                            .accessibilityLabel("搜索")
                     }
                     .padding(.horizontal, 20).padding(.top, 8)
                     .id("category.top")
@@ -50,19 +43,22 @@ struct CategoryView: View {
                     .transition(.opacity)
                 }
                 .padding(.bottom, 24)
+                .compatScrollContent()
             }
             .scrollIndicators(.hidden)
-            .compatOnScrolled(threshold: 6) { v in
-                withAnimation(.easeOut(duration: 0.2)) { scrolled = v }
-            }
+            .compatOnScrolled(threshold: 6) { v in scrolled = v }
             .overlay(alignment: .top) { topFade }
             .overlay(alignment: .top) {
-                if mode == .filter && collapsed {
-                    stickyBar { withAnimation(DS.panel) { proxy.scrollTo("category.top", anchor: .top) } }
-                        .transition(.move(edge: .top).combined(with: .opacity))
+                // The animation is scoped to the strip; on the scroll view it also animated every cell that changed in
+                // the same update.
+                ZStack(alignment: .top) {
+                    if mode == .filter && collapsed {
+                        stickyBar { withAnimation(DS.panel) { proxy.scrollTo("category.top", anchor: .top) } }
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
                 }
+                .animation(DS.panel, value: collapsed)
             }
-            .animation(DS.panel, value: collapsed)
         }
         .coordinateSpace(name: "category")
         .dsAmbient(visible: !scrolled)
@@ -81,11 +77,9 @@ struct CategoryView: View {
 
     /// `.topfade`: page colour under the status bar, fading out over the content once it scrolls.
     private var topFade: some View {
-        LinearGradient(stops: [.init(color: STVTheme.bg, location: 0), .init(color: STVTheme.bg, location: 0.42), .init(color: STVTheme.bg.opacity(0), location: 1)],
-                       startPoint: .top, endPoint: .bottom)
-            .frame(height: collapsed && mode == .filter ? 70 : 24)
-            .ignoresSafeArea(edges: .top)
-            .opacity(scrolled ? 1 : 0)
+        Color.clear.frame(height: collapsed && mode == .filter ? 52 : 2)
+            .frame(maxWidth: .infinity)
+            .background { LiquidEdgeFade(visible: scrolled) }
             .allowsHitTesting(false)
     }
 
@@ -233,7 +227,7 @@ struct CategoryView: View {
     private func stickyBar(expand: @escaping () -> Void) -> some View {
         let list = panel.map(picks) ?? []
         return HStack(spacing: 8) {
-            Image(systemName: "line.3.horizontal.decrease").font(.system(size: 15, weight: .semibold)).foregroundStyle(STVTheme.accent)
+            Image(systemName: "line.3.horizontal.decrease").font(.system(size: 15, weight: .semibold)).foregroundStyle(STVTheme.accent).accessibilityHidden(true)
             Text(list.isEmpty ? "全部剧集" : list.map(\.name).joined(separator: " · "))
                 .font(.system(size: 15, weight: .semibold)).foregroundStyle(STVTheme.text).lineLimit(1)
             if !list.isEmpty {
@@ -248,15 +242,16 @@ struct CategoryView: View {
                     Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
                 }
                 .foregroundStyle(STVTheme.secondary)
-                .padding(.leading, 12).padding(.trailing, 8).frame(height: 30)
+                .padding(.leading, 12).padding(.trailing, 8).frame(height: 32)
                 .background(Capsule().fill(STVTheme.glass))
+                .contentShape(Capsule().inset(by: -6))
             }
             .buttonStyle(PressScale())
             .accessibilityIdentifier("filter.expand")
         }
-        .padding(.leading, 14).padding(.trailing, 8)
-        .frame(height: 46)
-        .dsBar(23)
+        .padding(.leading, 16).padding(.trailing, 8)
+        .frame(height: 48)
+        .dsBar(24)
         .padding(.horizontal, 12).padding(.top, 2)
         .accessibilityIdentifier("filter.sticky")
     }
