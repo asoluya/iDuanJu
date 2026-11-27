@@ -36,7 +36,6 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.PlayArrow
@@ -280,16 +279,11 @@ fun HomeScreen(onOpenDetail: (String) -> Unit, onSearch: () -> Unit = {}, onPlay
                         .heightIn(min = 46.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(Modifier.weight(1f).fillMaxHeight().testTag("home.search").pressClick(0.98f, label = "搜索", onClick = onSearch).padding(start = 16.dp),
+                    Row(Modifier.weight(1f).fillMaxHeight().testTag("home.search").pressClick(0.98f, label = "搜索", onClick = onSearch).padding(horizontal = 16.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Filled.Search, null, tint = c.secondary, modifier = Modifier.size(20.dp))
                         Spacer(Modifier.width(10.dp))
                         Text("搜索你想看的作品", color = c.secondary, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    Row(Modifier.fillMaxHeight().testTag("home.filter").pressClick(label = "筛选与全部频道") { HomeChannelSheetOpen.value = true }.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.FilterList, null, tint = c.text, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(5.dp))
-                        Text("筛选", color = c.text, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1)
                     }
                 }
                 Spacer(Modifier.height(10.dp))
@@ -301,11 +295,6 @@ fun HomeScreen(onOpenDetail: (String) -> Unit, onSearch: () -> Unit = {}, onPlay
                     }
                 }
                 ChannelBar(pages, pager.currentPage) { scope.launch { pager.animateScrollToPage(it) } }
-                if (HomeChannelSheetOpen.value) ChannelSheet(pages, pager.currentPage, onDismiss = { HomeChannelSheetOpen.value = false }) { page, sub ->
-                    HomeChannelSheetOpen.value = false
-                    if (sub != null) HomeSubSel.map[pages[page].label] = sub
-                    scope.launch { pager.animateScrollToPage(page) }
-                }
             }
             HorizontalPager(pager, Modifier.fillMaxSize().nestedScroll(feedScrollConnection), beyondViewportPageCount = 0,
                 key = { pages.getOrNull(it)?.key ?: it }) { index ->
@@ -347,61 +336,10 @@ private fun AiPage(onOpen: (String) -> Unit) {
     }
 }
 
-/** 「筛选」 and the channel chevron open the same 频道 sheet. */
-private val HomeChannelSheetOpen = mutableStateOf(false)
-
 /** Sub-tab chosen from the 频道 sheet, per home page label. */
 object HomeSubSel { val map = androidx.compose.runtime.mutableStateMapOf<String, Int>() }
 /** One-shot request from another tab (我的 → 漫画) to show a home source page. */
 object HomeJump { var label by androidx.compose.runtime.mutableStateOf<String?>(null) }
-
-/** iOS HomeChannelSheet: 「频道」 title + 完成, one section per page with its sub-channels as a 3-column grid of chips. */
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-@Composable
-private fun ChannelSheet(pages: List<HomePageRef>, current: Int, onDismiss: () -> Unit, onPick: (Int, Int?) -> Unit) {
-    val c = IdjThemeColors
-    GlassBottomSheet(onDismiss, title = "频道", doneText = "完成", scroll = true) {
-        Column(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-            pages.forEachIndexed { pi, page ->
-                val p = page.target
-                val subs: List<String> = when (p) {
-                    is HomeSource -> when (p) {
-                        HomeSource.huangguo -> listOf("视频站", "App 源")
-                        HomeSource.ai -> p.subs().map { it.subLabel } + if (IdjApp.instance.cms.adultUnlocked) listOf("黄果 AI 站") else emptyList()
-                        HomeSource.manga -> emptyList()
-                        else -> p.subs().map { it.subLabel }
-                    }
-                    else -> listOf(page.label)
-                }
-                if (subs.isEmpty()) return@forEachIndexed
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(page.label, color = c.secondary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.semantics { heading() })
-                    subs.chunked(3).forEach { row ->
-                        Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            row.forEach { t ->
-                                val si = subs.indexOf(t)
-                                val on = pi == current && (HomeSubSel.map[page.label] ?: 0) == si
-                                SheetTile(t, on, Modifier.weight(1f).fillMaxHeight()) { onPick(pi, if (p is HomeSource && p != HomeSource.huangguo) si else null) }
-                            }
-                            repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** Plain well on the sheet glass (iOS: glass fill, accent 14 % when selected, r10). */
-@Composable
-private fun SheetTile(text: String, on: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    val c = IdjThemeColors
-    Box(modifier.pressClick(0.97f, onClick = onClick).clip(RoundedCornerShape(10.dp)).background(if (on) c.accentSoft else c.glass)
-        .semantics { selected = on }.heightIn(min = 44.dp).padding(horizontal = 6.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
-        Text(text, color = if (on) c.accent else c.text, fontSize = 15.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
-            textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
-    }
-}
 
 /** iOS HomeChannelBar: unselected 17 secondary, selected 24 heavy + 26x4 accent capsule; selected auto-centred.
  *  Long-press a tab and drag sideways to reorder; the new order persists to homePageOrder on drop. */

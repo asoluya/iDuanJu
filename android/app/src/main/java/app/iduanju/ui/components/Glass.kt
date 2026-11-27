@@ -216,10 +216,12 @@ fun Modifier.glassSurface(
                     }
                 },
                 shadow = {
+                    // shadowRadius = 0 表示调用方明确不要阴影: 半径为 0 时库仍会按 6dp 偏移
+                    // 画一层未模糊的灰影 (搜索框那圈灰边就是它), 所以 0 时直接给透明色关掉。
                     Shadow(
                         radius = shadowRadius,
                         offset = DpOffset(0.dp, 6.dp),
-                        color = shadowColor,
+                        color = if (shadowRadius == 0.dp) Color.Transparent else shadowColor,
                     )
                 },
                 onDrawSurface = {
