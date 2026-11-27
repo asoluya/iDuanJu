@@ -607,13 +607,13 @@ fun GlassNavigationRail(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            items.forEachIndexed { i, (label, icon) ->
+            items.forEachIndexed { i, (_, icon) ->
                 val on = i == selected && !searchSelected
                 val pill by animateFloatAsState(if (on) 1f else 0f, spring(dampingRatio = 0.8f, stiffness = 520f), label = "railPill")
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .height(60.dp)
+                        .height(48.dp)
                         .clip(RoundedCornerShape(18.dp))
                         .clickable { onSelect(i) },
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -631,15 +631,7 @@ fun GlassNavigationRail(
                         )
                         icon(on)
                     }
-                    Spacer(Modifier.height(3.dp))
-                    Text(
-                        label,
-                        color = if (on) c.text else dockLabel(),
-                        fontSize = 11.sp,
-                        lineHeight = 13.sp,
-                        maxLines = 1,
-                        fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium,
-                    )
+                    // 图标-only: 与底部 dock 一致, 不显示文字标签
                 }
             }
         }

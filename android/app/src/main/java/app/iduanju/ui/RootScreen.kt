@@ -141,8 +141,8 @@ fun RootScreen(initialRoute: String? = null) {
         }
         val navItems = remember {
             buildList<Pair<String, @Composable (Boolean) -> Unit>> {
-                add("首页" to { on -> Icon(Icons.Filled.Home, null, Modifier.size(20.dp), tint = if (on) IdjThemeColors.text else dockLabel()) })
-                add("我的" to { on -> Icon(Icons.Filled.Person, null, Modifier.size(20.dp), tint = if (on) IdjThemeColors.text else dockLabel()) })
+                add("首页" to { on -> Icon(Icons.Filled.Home, null, Modifier.size(24.dp), tint = if (on) IdjThemeColors.text else dockLabel()) })
+                add("我的" to { on -> Icon(Icons.Filled.Person, null, Modifier.size(24.dp), tint = if (on) IdjThemeColors.text else dockLabel()) })
             }
         }
         val goHome: () -> Unit = {
@@ -428,7 +428,7 @@ private fun SwipeableGlassTabBar(
                         },
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    items.forEachIndexed { i, (label, icon) ->
+                    items.forEachIndexed { i, (_, icon) ->
                         val on = i == activeTab
                         Box(
                             Modifier
@@ -438,17 +438,7 @@ private fun SwipeableGlassTabBar(
                                 .clickable { latestOnSelect(i) },
                             contentAlignment = Alignment.Center,
                         ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                icon(on)
-                                Spacer(Modifier.height(2.dp))
-                                Text(
-                                    label,
-                                    color = if (on) c.text else dockLabel(),
-                                    fontSize = 11.sp,
-                                    fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium,
-                                    maxLines = 1,
-                                )
-                            }
+                            icon(on)
                         }
                     }
                 }
