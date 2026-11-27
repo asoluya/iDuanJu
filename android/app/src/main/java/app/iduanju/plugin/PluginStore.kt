@@ -74,6 +74,27 @@ class PluginStore(private val ctx: Context,
             }
             sp.edit().putBoolean("hongguoSwapped", true).apply()
         }
+        // Bundled updates: a bundled plugin still installed from us (origin 内置) is
+        // refreshed in place when the shipped bundle is newer. Plugins the user removed
+        // are not in the list and stay removed; manual/subscription installs of the
+        // same id are untouched. install() preserves the enabled state.
+        for (f in bundled()) {
+            val text = runCatching { bundledText(f) }.getOrNull() ?: continue
+            val m = runCatching { PluginBundle.parse(text).manifest }.getOrNull() ?: continue
+            val cur = plugins.firstOrNull { it.id == m.id } ?: continue
+            if (cur.origin != "内置") continue
+            if (versionNewer(m.version, cur.version)) runCatching { install(text, "内置") }
+        }
+    }
+
+    private fun versionNewer(a: String, b: String): Boolean {
+        val pa = a.split('.'); val pb = b.split('.')
+        for (i in 0 until maxOf(pa.size, pb.size)) {
+            val x = pa.getOrNull(i)?.toIntOrNull() ?: 0
+            val y = pb.getOrNull(i)?.toIntOrNull() ?: 0
+            if (x != y) return x > y
+        }
+        return false
     }
 
     /** One-time seed of the official plugin subscription: added once (recorded in prefs); if the user removes it, it never comes back. A failed fetch leaves the seed pending so the next launch retries. Blocking; call off the main thread. */

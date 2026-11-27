@@ -31,6 +31,9 @@ class PluginVideo(val inst: PluginInstance, private val extraDomains: List<Strin
     val pid get() = m.id
     var categories: List<CMSCategory> = emptyList(); private set
 
+    /** Category id the plugin declares its home feed duplicates ("" = none): the feed page then drops its synthetic 推荐 tab and starts on that category. */
+    var homeCategory: String = ""; private set
+
     private fun cover(u: String, headers: Map<String, String> = emptyMap()): String {
         val h = runCatching { java.net.URI(u).host }.getOrNull() ?: return ""
         if (NetGuard.isIPLiteral(h)) return ""
@@ -58,6 +61,7 @@ class PluginVideo(val inst: PluginInstance, private val extraDomains: List<Strin
             if (p > 1) return HGPage(emptyList(), false)
             val r = inst.call("home", JSONObject()) as? JSONObject ?: JSONObject()
             categories = PluginOut.categories(r.opt("categories"))
+            homeCategory = PluginOut.s(r.opt("homeCategory"))
             if ((r.optJSONArray("items")?.length() ?: 0) > 0) return page(r, 1)
             val first = categories.firstOrNull() ?: return HGPage(emptyList(), false)
             return page(inst.call("category", JSONObject().put("id", first.id).put("page", 1).put("filters", JSONObject())), 1)

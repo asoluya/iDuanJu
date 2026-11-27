@@ -83,7 +83,11 @@ fun PluginFeedPage(p: app.iduanju.plugin.PluginStore.Installed, onOpen: (String)
         try {
             val r = v.list(cat, page)
             if (cat.isEmpty()) v.categories.takeIf { it.isNotEmpty() }?.let { cs ->
-                val list = listOf("" to "推荐") + cs.map { it.id to it.name }
+                val pairs = cs.map { it.id to it.name }
+                // A plugin may declare its home feed duplicates one of its categories
+                // (homeCategory, e.g. 红果 home == 热播榜): drop the synthetic 推荐 tab then.
+                val list = if (v.homeCategory.isNotEmpty() && pairs.any { it.first == v.homeCategory }) pairs
+                    else listOf("" to "推荐") + pairs
                 FeedGridCache.categories[cacheKey] = list
                 cats = list
             }
