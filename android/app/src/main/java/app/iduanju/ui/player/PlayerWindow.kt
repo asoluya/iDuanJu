@@ -83,7 +83,10 @@ internal fun PlayerWindowEffects(session: PlayerSession, ui: PlayerUi, enhance: 
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             activity?.window?.let { w ->
                 w.colorMode = ActivityInfo.COLOR_MODE_DEFAULT
-                w.attributes = w.attributes.apply { screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE }
+                w.attributes = w.attributes.apply {
+                    screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                    if (android.os.Build.VERSION.SDK_INT >= 30) preferredRefreshRate = 0f
+                }
                 WindowCompat.getInsetsController(w, w.decorView).show(WindowInsetsCompat.Type.systemBars())
             }
         }
@@ -100,6 +103,19 @@ internal fun PlayerWindowEffects(session: PlayerSession, ui: PlayerUi, enhance: 
     // Awake only while frames play or the next episode is about to.
     val awake = session.playing || (session.error == null && session.status.isNotEmpty() && session.detail != null)
     LaunchedEffect(awake) { keepScreenOn(activity, awake) }
+    // Frame-rate matching: hand the content frame rate to the window as its preferred refresh rate, so the
+    // system picks a display mode the content divides evenly (25 fps -> 100 Hz, 30 fps -> 120/60 Hz).
+    // Without it a 120 Hz panel shows 25 fps with frames alternating between 4 and 5 refresh cycles, which
+    // reads as judder on pans. Cleared with the other window state in the dispose block above.
+    LaunchedEffect(session.tags.fps, activity) {
+        if (android.os.Build.VERSION.SDK_INT < 30) return@LaunchedEffect
+        val w = activity?.window ?: return@LaunchedEffect
+        val want = session.tags.fps?.takeIf { it > 0 }?.toFloat() ?: 0f
+        if (w.attributes.preferredRefreshRate != want) {
+            w.attributes = w.attributes.apply { preferredRefreshRate = want }
+            android.util.Log.i("IDJ", "preferredRefreshRate=$want")
+        }
+    }
     // Wide colour gamut for SDR→HDR / native HDR. Not COLOR_MODE_HDR: on a TextureView that would dim the Compose
     // overlays and break the getBitmap() ambient readback. SDR→HDR additionally lifts the window backlight (+0.22 over
     // the user's system brightness, clamped to 0.45..1.0) so the shader's inverse tone mapping reads as a real gain.
