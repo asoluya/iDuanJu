@@ -73,7 +73,7 @@ data class TechTags(val res: String? = null, val range: String? = null, val code
 }
 
 /**
- * Technical status badges: neutral pills for resolution / codec / high frame rate and accent pills for the active GPU
+ * Technical status badges: neutral pills for resolution / codec / frame rate and accent pills for the active GPU
  * stages (AI 超分, SDR→HDR) or a native HDR range. Tapping opens the enhancement panel.
  */
 @Composable
@@ -81,7 +81,7 @@ internal fun StatusBadges(t: TechTags, enhanceOn: Boolean, hdrOn: Boolean, nativ
     val items = buildList {
         t.res?.let { add(it to false) }
         t.codec?.let { add(it to false) }
-        t.fps?.takeIf { it >= 48 }?.let { add("${it}FPS" to false) }
+        t.fps?.takeIf { it > 0 }?.let { add("${it}FPS" to false) }
         when {
             nativeRange != null -> add(nativeRange to true)
             hdrOn -> add("SDR→HDR" to true)
